@@ -28,14 +28,14 @@ jobs:
       DATABASE_URL: postgresql+psycopg2://hirelens:hirelens@localhost:5432/hirelens
 
     steps:
-      - uses: actions/checkout@4
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Cache pip
-        uses: actions/cache@4
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
@@ -61,9 +61,9 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@4
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@20
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
