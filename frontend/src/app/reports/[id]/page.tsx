@@ -376,7 +376,7 @@ export default function ReportPage() {
             <div
               role="tablist"
               aria-label="Report sections"
-              className="mb-4 flex flex-wrap gap-1 overflow-x-auto pb-2"
+              className="mb-4 flex flex-wrap gap-2 overflow-x-auto pb-2"
             >
               {TAB_IDS.map((tab) => (
                 <button
@@ -385,7 +385,7 @@ export default function ReportPage() {
                   role="tab"
                   aria-selected={activeTab === tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                     activeTab === tab
                       ? "bg-accent text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
