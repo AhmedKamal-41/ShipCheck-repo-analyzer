@@ -33,6 +33,7 @@ export type Report = {
   repo_url: string;
   repo_owner: string | null;
   repo_name: string | null;
+  commit_sha?: string | null;
   status: string | null;
   overall_score: number | null;
   findings_json: ReportFindings | null;
