@@ -44,8 +44,8 @@ test.describe('Analyze Flow', () => {
       analyzeButton.click(),
     ]);
     
-    // Check report page loads
-    await expect(page.getByText(/readiness score/i).first()).toBeVisible({ timeout: 10000 });
+    // Check report page loads (header shows repo label from fixture; report page uses "Score" in sidebar, not "Readiness Score")
+    await expect(page.getByText(/test\/repo/)).toBeVisible({ timeout: 10000 });
   });
 
   test('should show validation error for invalid URL', async ({ page }) => {
