@@ -90,11 +90,88 @@ Use the root `Makefile` for shortcuts (`make infra-up`, `make dev-backend`, `mak
 
 ---
 
+## Testing
+
+HireLens includes comprehensive test coverage across unit, integration, E2E, contract, and performance tests.
+
+### Running Tests
+
+**Backend Tests:**
+```bash
+make test-backend
+# or
+cd backend && pytest tests -v --cov=app --cov-report=term-missing
+```
+
+**Frontend E2E Tests:**
+```bash
+make test-frontend
+# or
+cd frontend && npm run test:e2e
+```
+
+**Contract Tests:**
+```bash
+make test-contract
+# or
+pytest tests/contract -v
+```
+
+**Performance Tests:**
+```bash
+make test-perf
+# or
+cd tests/performance && k6 run health-check.js
+```
+
+**All Tests:**
+```bash
+make test-all
+```
+
+### Test Structure
+
+- **Unit Tests** (`backend/tests/unit/`): Fast, isolated tests for individual functions
+- **Integration Tests** (`backend/tests/integration/`): API endpoint and database tests
+- **E2E Tests** (`frontend/tests/e2e/`): Playwright tests for user workflows
+- **Contract Tests** (`tests/contract/`): API response schema validation
+- **Performance Tests** (`tests/performance/`): k6 load tests
+
+### CI/CD
+
+Tests run automatically on every push and pull request via GitHub Actions. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full pipeline.
+
+**CI Jobs:**
+- `backend-tests`: Runs pytest with coverage (≥80% required)
+- `frontend-build`: Lints and builds Next.js app
+- `frontend-tests`: Runs Playwright E2E tests
+- `contract-tests`: Validates API contracts
+- `performance-tests`: Runs k6 scripts (optional/manual trigger)
+
+**Test Reports:**
+- Coverage reports: Available as artifacts in GitHub Actions
+- Playwright reports: HTML reports uploaded as artifacts
+- View latest run: [GitHub Actions](https://github.com/OWNER/REPO/actions)
+
+### Test Documentation
+
+- [Test Plan](docs/qa/test-plan.md): Comprehensive testing strategy
+- [Test Matrix](docs/qa/test-matrix.md): Feature coverage by test type
+- [Manual Test Cases](docs/qa/manual-test-cases.md): 15+ detailed manual test scenarios
+- [Bug Report Template](docs/qa/bug-report-template.md): Standardized bug reporting
+- [Release Checklist](docs/qa/release-checklist.md): Pre/post-release verification
+
+---
+
 ## Repo structure
 
 | Path | Description |
 |------|-------------|
 | `backend/` | FastAPI app, analyzer, GitHub client, DB models |
+| `backend/tests/` | Backend unit and integration tests |
 | `frontend/` | Next.js App Router, report UI |
+| `frontend/tests/` | Frontend E2E tests (Playwright) |
+| `tests/contract/` | API contract tests |
+| `tests/performance/` | k6 performance test scripts |
 | `infra/` | `docker-compose.yml` (Postgres) |
-| `docs/` | Architecture, `screenshots/` placeholder |
+| `docs/` | Architecture, QA documentation, screenshots |
