@@ -62,10 +62,8 @@ test.describe('Error States', () => {
     await input.fill('https://github.com/test/repo');
     await page.waitForTimeout(500);
 
-    const generateButton = page.getByRole('button', { name: /analyze/i }).first();
-    
-    // Click and wait - navigation should happen, then error on report page
-    await generateButton.click();
+    const analyzeButton = page.locator('#analyze').getByRole('button', { name: /analyze/i });
+    await analyzeButton.click();
     
     // Wait for navigation to report page first
     await page.waitForURL(/\/reports\/.+/, { timeout: 10000 }).catch(() => {
@@ -96,9 +94,9 @@ test.describe('Error States', () => {
     await input.fill('https://github.com/test/repo');
     await page.waitForTimeout(500);
 
-    const generateButton = page.getByRole('button', { name: /analyze/i }).first();
-    await generateButton.click();
-    
+    const analyzeButton = page.locator('#analyze').getByRole('button', { name: /analyze/i });
+    await analyzeButton.click();
+
     // Wait a bit for error to appear (should stay on home page)
     await page.waitForTimeout(3000);
     
