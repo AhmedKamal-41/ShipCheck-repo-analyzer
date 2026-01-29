@@ -15,7 +15,8 @@ backend_path = project_root / "backend"
 sys.path.insert(0, str(backend_path))
 sys.path.insert(0, str(project_root))
 
-from tests.contract.schemas import (
+# Import schemas using relative import to avoid module path issues
+from .schemas import (
     AnalyzeResponseSchema,
     ReportResponseSchema,
     ReportListItemSchema,
