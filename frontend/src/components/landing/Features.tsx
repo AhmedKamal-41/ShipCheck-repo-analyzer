@@ -42,7 +42,7 @@ const FEATURES = [
 
 export function Features() {
   return (
-    <CenteredSection id="features" className="scroll-mt-20 pt-16 sm:pt-24">
+    <CenteredSection id="features" className="scroll-mt-20 pt-12 sm:pt-20">
       <Container>
         <CenteredSectionHeader
           title="What we check"
