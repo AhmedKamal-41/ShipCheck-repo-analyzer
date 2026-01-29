@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, RootModel, field_validator
 
 
 class AnalyzeResponseSchema(BaseModel):
@@ -70,9 +70,9 @@ class ReportListItemSchema(BaseModel):
     created_at: str | None = Field(None, description="ISO 8601 datetime")
 
 
-class ReportListResponseSchema(BaseModel):
+class ReportListResponseSchema(RootModel):
     """Schema for GET /api/reports response."""
-    __root__: list[ReportListItemSchema]
+    root: list[ReportListItemSchema]
 
 
 class ErrorResponseSchema(BaseModel):
