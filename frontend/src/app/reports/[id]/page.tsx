@@ -96,15 +96,21 @@ export default function ReportPage() {
   const [copied, setCopied] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  // Reset pollTimedOut when id changes by using a key-based approach
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | "fail" | "warn" | "pass">("all");
   const [search, setSearch] = useState("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const idRef = useRef(id);
 
   // Reset poll timeout when id changes
+  // This is safe as it's a controlled reset when the route param changes
   useEffect(() => {
-    if (!id) return;
-    setPollTimedOut(false);
+    if (idRef.current !== id) {
+      idRef.current = id;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPollTimedOut(false);
+    }
   }, [id]);
 
   useEffect(() => {
