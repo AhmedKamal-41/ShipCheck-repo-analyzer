@@ -81,23 +81,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: |
-          cd frontend
-          npm ci
+        working-directory: frontend
+        run: npm ci
 
       - name: Lint
-        run: |
-          cd frontend
-          npm run lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Build
-        run: |
-          cd frontend
-          npm run build
+        working-directory: frontend
+        run: npm run build
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -107,23 +102,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: |
-          cd frontend
-          npm ci
+        working-directory: frontend
+        run: npm ci
 
       - name: Install Playwright browsers
-        run: |
-          cd frontend
-          npx playwright install --with-deps chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests
-        run: |
-          cd frontend
-          npm run test:e2e
+        working-directory: frontend
+        run: npm run test:e2e
         env:
           PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
 
@@ -183,8 +173,7 @@ jobs:
 
       - name: Run contract tests
         run: |
-          cd backend
-          pytest ../tests/contract -v
+          pytest tests/contract -v
         env:
           PYTHONPATH: ${{ github.workspace }}/backend
 
