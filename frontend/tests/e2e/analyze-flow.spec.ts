@@ -11,27 +11,37 @@ test.describe('Analyze Flow', () => {
     );
 
     // Mock API calls - intercept requests to localhost:8000 (the API base)
-    await page.route('http://localhost:8000/api/analyze', async (route) => {
-      await route.fulfill({ json: analyzeResponse, status: 200 });
+    await page.route('**/api/analyze', async (route) => {
+      if (route.request().url().includes('localhost:8000') || route.request().url().includes('/api/analyze')) {
+        await route.fulfill({ json: analyzeResponse, status: 200 });
+      } else {
+        await route.continue();
+      }
     });
 
-    await page.route(`http://localhost:8000/api/reports/${analyzeResponse.report_id}`, async (route) => {
-      await route.fulfill({ json: doneReport, status: 200 });
+    await page.route(`**/api/reports/${analyzeResponse.report_id}`, async (route) => {
+      if (route.request().url().includes('localhost:8000') || route.request().url().includes(`/api/reports/${analyzeResponse.report_id}`)) {
+        await route.fulfill({ json: doneReport, status: 200 });
+      } else {
+        await route.continue();
+      }
     });
 
     // Navigate to home
     await page.goto('/');
+    await page.waitForLoadState('networkidle');
 
     // Enter GitHub URL
     const input = page.getByPlaceholder(/github/i).or(page.getByLabel(/url/i)).first();
     await input.fill('https://github.com/test/repo');
+    await page.waitForTimeout(500); // Wait for input to update
 
-    // Click generate button and wait for navigation
-    const generateButton = page.getByRole('button', { name: /generate|analyze|try/i }).first();
+    // Click generate button
+    const generateButton = page.getByRole('button', { name: /generate/i }).first();
     
-    // Wait for navigation to report page
+    // Wait for navigation to report page (with longer timeout)
     await Promise.all([
-      page.waitForURL(/\/reports\/.+/),
+      page.waitForURL(/\/reports\/.+/, { timeout: 15000 }),
       generateButton.click(),
     ]);
     
@@ -70,24 +80,34 @@ test.describe('Analyze Flow', () => {
     );
 
     // Mock API calls
-    await page.route('http://localhost:8000/api/analyze', async (route) => {
-      await route.fulfill({ json: analyzeResponse, status: 200 });
+    await page.route('**/api/analyze', async (route) => {
+      if (route.request().url().includes('localhost:8000') || route.request().url().includes('/api/analyze')) {
+        await route.fulfill({ json: analyzeResponse, status: 200 });
+      } else {
+        await route.continue();
+      }
     });
 
-    await page.route(`http://localhost:8000/api/reports/${analyzeResponse.report_id}`, async (route) => {
-      await route.fulfill({ json: pendingReport, status: 200 });
+    await page.route(`**/api/reports/${analyzeResponse.report_id}`, async (route) => {
+      if (route.request().url().includes('localhost:8000') || route.request().url().includes(`/api/reports/${analyzeResponse.report_id}`)) {
+        await route.fulfill({ json: pendingReport, status: 200 });
+      } else {
+        await route.continue();
+      }
     });
 
     await page.goto('/');
+    await page.waitForLoadState('networkidle');
 
     const input = page.getByPlaceholder(/github/i).or(page.getByLabel(/url/i)).first();
     await input.fill('https://github.com/test/repo');
+    await page.waitForTimeout(500);
 
-    const generateButton = page.getByRole('button', { name: /generate|analyze|try/i }).first();
+    const generateButton = page.getByRole('button', { name: /generate/i }).first();
     
     // Wait for navigation to report page
     await Promise.all([
-      page.waitForURL(/\/reports\/.+/),
+      page.waitForURL(/\/reports\/.+/, { timeout: 15000 }),
       generateButton.click(),
     ]);
     
