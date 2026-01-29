@@ -37,7 +37,7 @@ test.describe('Analyze Flow', () => {
     await page.waitForTimeout(500); // Wait for input to update
 
     // Click generate button
-    const generateButton = page.getByRole('button', { name: /generate/i }).first();
+    const generateButton = page.getByRole('button', { name: /analyze/i }).first();
     
     // Wait for navigation to report page (with longer timeout)
     await Promise.all([
@@ -103,7 +103,7 @@ test.describe('Analyze Flow', () => {
     await input.fill('https://github.com/test/repo');
     await page.waitForTimeout(500);
 
-    const generateButton = page.getByRole('button', { name: /generate/i }).first();
+    const generateButton = page.getByRole('button', { name: /analyze/i }).first();
     
     // Wait for navigation to report page
     await Promise.all([
