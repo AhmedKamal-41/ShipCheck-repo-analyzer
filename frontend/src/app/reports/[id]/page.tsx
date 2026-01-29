@@ -101,9 +101,14 @@ export default function ReportPage() {
   const [search, setSearch] = useState("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Reset poll timeout when id changes
   useEffect(() => {
     if (!id) return;
     setPollTimedOut(false);
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
     getReport(id)
       .then((r) => {
         setReport(r);
