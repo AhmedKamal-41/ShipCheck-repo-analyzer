@@ -131,6 +131,10 @@ def test_report_findings_json_storage(db):
 
 def test_query_reports_by_status(db):
     """Test querying reports by status."""
+    # Clean up any existing reports first
+    db.query(Report).delete()
+    db.commit()
+    
     # Create reports with different statuses
     for status in ["pending", "done", "failed"]:
         report = Report(
