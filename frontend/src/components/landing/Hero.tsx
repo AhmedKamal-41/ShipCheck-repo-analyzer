@@ -11,7 +11,7 @@ export function Hero() {
   return (
     <section
       id="analyze"
-      className="relative scroll-mt-14 flex min-h-[100svh] flex-col items-center justify-center pt-14 pb-12 lg:pb-16"
+      className="relative scroll-mt-14 flex min-h-[100svh] flex-col items-center justify-center pt-12 pb-10 lg:pb-12"
     >
       {/* Subtle overlay: very faint radial gradient for depth */}
       <div
@@ -27,22 +27,22 @@ export function Hero() {
           <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
             REPOSITORY READINESS
           </p>
-          <h1 className="font-heading mt-2 max-w-xl text-[2.5rem] font-semibold leading-tight tracking-tight text-[var(--text)] sm:text-5xl lg:text-[3.5rem]">
+          <h1 className="font-heading mt-1.5 max-w-xl text-[2.5rem] font-semibold leading-tight tracking-tight text-[var(--text)] sm:text-5xl lg:text-[3.5rem]">
             Repository readiness in 60 seconds
           </h1>
-          <p className="mt-3 max-w-xl text-base leading-relaxed text-[var(--muted)]">
+          <p className="mt-2 max-w-xl text-base leading-relaxed text-[var(--muted)]">
             Runability, CI, security signals-summarized into a shareable report.
           </p>
-          <div className="mt-5 w-full max-w-xl sm:mt-6">
+          <div className="mt-4 w-full max-w-xl sm:mt-5">
             <AnalyzeForm />
           </div>
-          <p className="mt-3 text-xs text-[var(--muted)] sm:mt-4">
+          <p className="mt-2 text-xs text-[var(--muted)] sm:mt-3">
             Read-only • No code execution • No login • Shareable report link
           </p>
           <button
             type="button"
             onClick={scrollToExample}
-            className="mt-2 text-xs text-[var(--muted)] transition-colors hover:text-[var(--link)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2 rounded"
+            className="mt-1.5 text-xs text-[var(--muted)] transition-colors hover:text-[var(--link)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2 rounded"
           >
             See example report →
           </button>
