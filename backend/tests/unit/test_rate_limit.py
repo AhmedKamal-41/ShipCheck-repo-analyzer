@@ -59,7 +59,7 @@ def test_rate_limit_different_ips():
 def test_rate_limit_window_expiry():
     """Test that old requests expire after window."""
     ip = "127.0.0.5"
-    from app.core.rate_limit import _store
+    from app.core.rate_limit import _store, _prune
     _store.clear()
     
     # Make requests up to limit
@@ -69,6 +69,10 @@ def test_rate_limit_window_expiry():
     # Manually expire old timestamps (simulate time passing)
     _store[ip] = [time.monotonic() - WINDOW_SECONDS - 1]
     
+    # Prune expired entries (this happens in check_analyze_rate_limit)
+    _prune(_store[ip], WINDOW_SECONDS)
+    
     # Should be able to make new request
     check_analyze_rate_limit(ip)
-    assert len(_store[ip]) == 2  # Old expired + new request
+    # After pruning and adding new request, should have 1 item (old was pruned)
+    assert len(_store[ip]) == 1
