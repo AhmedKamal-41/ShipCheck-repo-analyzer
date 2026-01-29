@@ -36,13 +36,11 @@ test.describe('Analyze Flow', () => {
     await input.fill('https://github.com/test/repo');
     await page.waitForTimeout(500); // Wait for input to update
 
-    // Click generate button
-    const generateButton = page.getByRole('button', { name: /analyze/i }).first();
-    
-    // Wait for navigation to report page (with longer timeout)
+    // Click the form's Analyze button (hero has id="analyze"; navbar also has an "Analyze" button)
+    const analyzeButton = page.locator('#analyze').getByRole('button', { name: /analyze/i });
     await Promise.all([
       page.waitForURL(/\/reports\/.+/, { timeout: 15000 }),
-      generateButton.click(),
+      analyzeButton.click(),
     ]);
     
     // Check report page loads
@@ -56,10 +54,10 @@ test.describe('Analyze Flow', () => {
     
     // Enter invalid URL
     await input.fill('not-a-url');
-    
-    // Try to submit (may trigger validation)
-    const generateButton = page.getByRole('button', { name: /generate|analyze|try/i }).first();
-    await generateButton.click();
+
+    // Submit via form's Analyze button (navbar also has "Analyze")
+    const analyzeButton = page.locator('#analyze').getByRole('button', { name: /analyze/i });
+    await analyzeButton.click();
 
     // Should show error message (either inline or after API call)
     // The validation might happen client-side or server-side
@@ -103,14 +101,12 @@ test.describe('Analyze Flow', () => {
     await input.fill('https://github.com/test/repo');
     await page.waitForTimeout(500);
 
-    const generateButton = page.getByRole('button', { name: /analyze/i }).first();
-    
-    // Wait for navigation to report page
+    const analyzeButton = page.locator('#analyze').getByRole('button', { name: /analyze/i });
     await Promise.all([
       page.waitForURL(/\/reports\/.+/, { timeout: 15000 }),
-      generateButton.click(),
+      analyzeButton.click(),
     ]);
-    
+
     // Should show pending/skeleton state
     await expect(
       page.getByText(/pending|scanning|loading/i).first()
