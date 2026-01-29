@@ -85,7 +85,11 @@ jobs:
       - name: Install dependencies
         run: |
           cd frontend
-          npm ci
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Lint
         run: |
@@ -109,7 +113,11 @@ jobs:
       - name: Install dependencies
         run: |
           cd frontend
-          npm ci
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Install Playwright browsers
         run: |
