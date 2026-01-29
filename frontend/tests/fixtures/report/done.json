@@ -1,0 +1,110 @@
+{
+  "id": "123e4567-e89b-12d3-a456-426614174001",
+  "repo_url": "https://github.com/test/repo",
+  "repo_owner": "test",
+  "repo_name": "repo",
+  "commit_sha": "abc123def456",
+  "status": "done",
+  "overall_score": 85,
+  "findings_json": {
+    "overall_score": 85,
+    "sections": [
+      {
+        "name": "Runability",
+        "checks": [
+          {
+            "id": "runability_readme_install_run",
+            "name": "README install/run",
+            "status": "pass",
+            "evidence": {
+              "file": "README.md",
+              "snippet": "## Setup\n\nInstall: `npm install`. Run: `npm run dev`."
+            },
+            "recommendation": "README has install/run instructions.",
+            "points": 10
+          },
+          {
+            "id": "runability_docker",
+            "name": "Docker",
+            "status": "pass",
+            "evidence": {
+              "file": "Dockerfile",
+              "snippet": "FROM node:20"
+            },
+            "recommendation": "Docker support present.",
+            "points": 10
+          }
+        ],
+        "score": 20
+      },
+      {
+        "name": "Engineering Quality",
+        "checks": [
+          {
+            "id": "engineering_tests",
+            "name": "Tests",
+            "status": "pass",
+            "evidence": {
+              "file": "tests",
+              "snippet": ""
+            },
+            "recommendation": "Tests detected.",
+            "points": 10
+          },
+          {
+            "id": "engineering_ci",
+            "name": "CI",
+            "status": "pass",
+            "evidence": {
+              "file": ".github/workflows/ci.yml",
+              "snippet": "name: CI"
+            },
+            "recommendation": "CI present.",
+            "points": 10
+          }
+        ],
+        "score": 20
+      },
+      {
+        "name": "Secrets Safety",
+        "checks": [
+          {
+            "id": "secrets_env_example",
+            "name": ".env.example",
+            "status": "pass",
+            "evidence": {
+              "file": ".env.example",
+              "snippet": "API_KEY="
+            },
+            "recommendation": "Has .env.example.",
+            "points": 10
+          }
+        ],
+        "score": 10
+      },
+      {
+        "name": "Documentation",
+        "checks": [
+          {
+            "id": "documentation_readme_length",
+            "name": "README length",
+            "status": "pass",
+            "evidence": {
+              "file": "README.md",
+              "snippet": "length=500"
+            },
+            "recommendation": "README sufficient.",
+            "points": 10
+          }
+        ],
+        "score": 10
+      }
+    ],
+    "interview_pack": [
+      "How would you improve production readiness of this project?",
+      "What would you add first to make this codebase easier for new contributors?"
+    ]
+  },
+  "created_at": "2026-01-27T12:00:00Z",
+  "updated_at": "2026-01-27T12:05:00Z"
+}
