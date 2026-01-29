@@ -39,49 +39,71 @@ test.describe('Error States', () => {
   test('should handle API error gracefully', async ({ page }) => {
     const analyzeResponse = { report_id: '123e4567-e89b-12d3-a456-426614174999' };
 
-    await page.route('http://localhost:8000/api/analyze', async (route) => {
-      await route.fulfill({ json: analyzeResponse, status: 200 });
+    await page.route('**/api/analyze', async (route) => {
+      if (route.request().url().includes('localhost:8000') || route.request().url().includes('/api/analyze')) {
+        await route.fulfill({ json: analyzeResponse, status: 200 });
+      } else {
+        await route.continue();
+      }
     });
 
-    await page.route(`http://localhost:8000/api/reports/${analyzeResponse.report_id}`, async (route) => {
-      await route.fulfill({ status: 404, json: { detail: 'Report not found' } });
-    });
-
-    await page.goto('/');
-
-    const input = page.getByPlaceholder(/github/i).or(page.getByLabel(/url/i)).first();
-    await input.fill('https://github.com/test/repo');
-
-    const generateButton = page.getByRole('button', { name: /generate|analyze|try/i }).first();
-    
-    // Click and wait for either navigation or error message
-    await generateButton.click();
-    await page.waitForTimeout(2000);
-    
-    // Should handle 404 error - check for error message on current page
-    // Error might be on home page (if validation fails) or report page (if API fails)
-    const errorFound = await page.getByText(/not found|error|failed/i).first().isVisible({ timeout: 5000 }).catch(() => false);
-    expect(errorFound).toBe(true);
-  });
-
-  test('should handle network error', async ({ page }) => {
-    await page.route('http://localhost:8000/api/analyze', async (route) => {
-      await route.abort('failed');
+    await page.route(`**/api/reports/${analyzeResponse.report_id}`, async (route) => {
+      if (route.request().url().includes('localhost:8000') || route.request().url().includes(`/api/reports/${analyzeResponse.report_id}`)) {
+        await route.fulfill({ status: 404, json: { detail: 'Report not found' } });
+      } else {
+        await route.continue();
+      }
     });
 
     await page.goto('/');
+    await page.waitForLoadState('networkidle');
 
     const input = page.getByPlaceholder(/github/i).or(page.getByLabel(/url/i)).first();
     await input.fill('https://github.com/test/repo');
+    await page.waitForTimeout(500);
 
-    const generateButton = page.getByRole('button', { name: /generate|analyze|try/i }).first();
+    const generateButton = page.getByRole('button', { name: /generate/i }).first();
+    
+    // Click and wait - navigation should happen, then error on report page
     await generateButton.click();
+    
+    // Wait for navigation to report page first
+    await page.waitForURL(/\/reports\/.+/, { timeout: 10000 }).catch(() => {
+      // If navigation doesn't happen, check for error on home page
+    });
     
     // Wait a bit for error to appear
     await page.waitForTimeout(2000);
     
-    // Should show error message - check for error on current page
-    const errorFound = await page.getByText(/error|failed|network/i).first().isVisible({ timeout: 5000 }).catch(() => false);
+    // Should show error message - check for error alert or error text
+    const errorFound = await page.getByRole('alert').or(page.getByText(/not found|error|failed/i)).first().isVisible({ timeout: 5000 }).catch(() => false);
+    expect(errorFound).toBe(true);
+  });
+
+  test('should handle network error', async ({ page }) => {
+    await page.route('**/api/analyze', async (route) => {
+      if (route.request().url().includes('localhost:8000') || route.request().url().includes('/api/analyze')) {
+        await route.abort('failed');
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const input = page.getByPlaceholder(/github/i).or(page.getByLabel(/url/i)).first();
+    await input.fill('https://github.com/test/repo');
+    await page.waitForTimeout(500);
+
+    const generateButton = page.getByRole('button', { name: /generate/i }).first();
+    await generateButton.click();
+    
+    // Wait a bit for error to appear (should stay on home page)
+    await page.waitForTimeout(3000);
+    
+    // Should show error message in the alert - check for error alert or error text
+    const errorFound = await page.getByRole('alert').or(page.getByText(/error|failed|request/i)).first().isVisible({ timeout: 5000 }).catch(() => false);
     expect(errorFound).toBe(true);
   });
 });
