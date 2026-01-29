@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 import sys
 from pathlib import Path
 
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Add backend directory to path so we can import app
+backend_path = Path(__file__).parent.parent.parent / "backend"
+sys.path.insert(0, str(backend_path))
 
 from tests.contract.schemas import (
     AnalyzeResponseSchema,
