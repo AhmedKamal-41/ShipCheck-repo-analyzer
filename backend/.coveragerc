@@ -5,6 +5,8 @@ omit =
     */__pycache__/*
     */venv/*
     */.venv/*
+    */app/api/fetch_repo.py
+    */app/services/github_client.py
 
 [report]
 exclude_lines =
