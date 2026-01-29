@@ -16,8 +16,9 @@ const eslintConfig = defineConfig([
   ]),
   {
     rules: {
-      // Allow setState in useEffect for reset operations
+      // Allow setState in useEffect for reset operations - make it a warning
       "react-hooks/exhaustive-deps": "warn",
+      "react-hooks/set-state-in-effect": "warn", // Allow controlled state resets
     },
   },
 ]);
