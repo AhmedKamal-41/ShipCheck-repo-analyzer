@@ -108,10 +108,10 @@ def test_report_list_response_contract(client):
     
     # Validate each item
     assert isinstance(data, list)
-    for item in data:
-        schema = ReportListItemSchema(**item)
-        assert schema.id is not None
-        assert schema.repo_url is not None
+    schema = ReportListResponseSchema(data)
+    for item in schema.root:
+        assert item.id is not None
+        assert item.repo_url is not None
     
     db.close()
 
