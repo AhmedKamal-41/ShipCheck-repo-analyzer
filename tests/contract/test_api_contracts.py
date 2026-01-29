@@ -20,6 +20,7 @@ from .schemas import (
     AnalyzeResponseSchema,
     ReportResponseSchema,
     ReportListItemSchema,
+    ReportListResponseSchema,
     ErrorResponseSchema,
 )
 
@@ -133,7 +134,7 @@ def test_error_response_contract(client):
     
     # Validate error schema
     schema = ErrorResponseSchema(**data)
-    assert "detail" in schema.dict()
+    assert "detail" in schema.model_dump()
     assert len(schema.detail) > 0
 
 
