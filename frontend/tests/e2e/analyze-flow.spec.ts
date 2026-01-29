@@ -38,8 +38,9 @@ test.describe('Analyze Flow', () => {
 
     // Click the form's Analyze button (hero has id="analyze"; navbar also has an "Analyze" button)
     const analyzeButton = page.locator('#analyze').getByRole('button', { name: /analyze/i });
+    await analyzeButton.scrollIntoViewIfNeeded();
     await Promise.all([
-      page.waitForURL(/\/reports\/.+/, { timeout: 15000 }),
+      page.waitForURL(/\/reports\/.+/, { timeout: 15000, waitUntil: 'commit' }),
       analyzeButton.click(),
     ]);
     
@@ -102,8 +103,9 @@ test.describe('Analyze Flow', () => {
     await page.waitForTimeout(500);
 
     const analyzeButton = page.locator('#analyze').getByRole('button', { name: /analyze/i });
+    await analyzeButton.scrollIntoViewIfNeeded();
     await Promise.all([
-      page.waitForURL(/\/reports\/.+/, { timeout: 15000 }),
+      page.waitForURL(/\/reports\/.+/, { timeout: 15000, waitUntil: 'commit' }),
       analyzeButton.click(),
     ]);
 
