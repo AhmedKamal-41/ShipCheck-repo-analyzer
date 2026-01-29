@@ -83,16 +83,19 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        working-directory: frontend
-        run: npm ci
+        run: |
+          cd frontend
+          npm ci
 
       - name: Lint
-        working-directory: frontend
-        run: npm run lint
+        run: |
+          cd frontend
+          npm run lint
 
       - name: Build
-        working-directory: frontend
-        run: npm run build
+        run: |
+          cd frontend
+          npm run build
 
   frontend-tests:
     runs-on: ubuntu-latest
@@ -104,16 +107,19 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        working-directory: frontend
-        run: npm ci
+        run: |
+          cd frontend
+          npm ci
 
       - name: Install Playwright browsers
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
 
       - name: Run E2E tests
-        working-directory: frontend
-        run: npm run test:e2e
+        run: |
+          cd frontend
+          npm run test:e2e
         env:
           PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
 
