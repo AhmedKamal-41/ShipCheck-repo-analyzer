@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.config import GITHUB_TOKEN
 from app.core.database import get_db
 from app.core.rate_limit import RateLimitExceeded, check_analyze_rate_limit
+from app.core.repo_limits import MAX_FILES_FETCH, MAX_TOTAL_BYTES
 from app.models import Report
 from app.services.analyzer import ReportResult, analyze
+from app.services.candidate_selector import select_candidates
 from app.services.github_client import (
     GitHubAPIError,
     GitHubRateLimitError,
@@ -20,7 +22,7 @@ from app.services.github_client import (
     _parse_repo_url,
     fetch_repo,
 )
-from app.services.repo_ingest import ingest_repo
+from app.services.repo_content import batch_fetch_text
 
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEMO_FIXTURE_PATH = _BACKEND_ROOT / "tests" / "fixtures" / "sample_repo.json"
@@ -118,13 +120,22 @@ def post_analyze(
         db.commit()
         return AnalyzeResponse(report_id=report_id)
 
-    ingested = None
-    try:
-        ingested = ingest_repo(repo_url)
-    except Exception:
-        pass
+    content_by_path = {}
+    tree_blobs = fetch.get("tree_blobs") or []
+    if tree_blobs:
+        try:
+            owner = fetch.get("owner") or ""
+            repo = fetch.get("name") or ""
+            candidate_blobs = select_candidates(tree_blobs)
+            content_by_path = batch_fetch_text(
+                owner, repo, candidate_blobs,
+                max_files=MAX_FILES_FETCH,
+                max_total_bytes=MAX_TOTAL_BYTES,
+            )
+        except Exception:
+            pass
 
-    result: ReportResult = analyze(fetch, ingested=ingested)
+    result: ReportResult = analyze(fetch, content_by_path=content_by_path)
     report.status = "done"
     report.overall_score = result.overall_score
     report.findings_json = asdict(result)
