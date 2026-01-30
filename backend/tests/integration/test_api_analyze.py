@@ -103,23 +103,25 @@ def test_analyze_handles_fetch_error(client: TestClient, db):
 
 
 def test_analyze_includes_code_analysis_section(client: TestClient, db):
-    """Test that when ingest succeeds, report includes Code Analysis section."""
+    """Test that when content fetch succeeds, report includes Code Analysis section."""
     with patch("app.api.reports.fetch_repo") as mock_fetch:
         mock_fetch.return_value = {
             "owner": "test",
             "name": "repo",
             "default_branch": "main",
+            "tree_blobs": [
+                {"path": "app/main.py", "sha": "abc"},
+                {"path": "src/foo.py", "sha": "def"},
+            ],
+            "tree_paths": ["app/main.py", "src/foo.py"],
             "key_files": [],
             "workflows": [],
             "test_folders_detected": [],
         }
-        with patch("app.api.reports.ingest_repo") as mock_ingest:
-            mock_ingest.return_value = {
-                "files": {
-                    "app/main.py": "from fastapi import FastAPI\napp = FastAPI()\n@app.get(\"/\")\ndef root(): pass",
-                    "src/foo.py": "x = 1",
-                },
-                "stats": {"total_files": 2, "total_bytes": 100, "truncated": False},
+        with patch("app.api.reports.batch_fetch_text") as mock_batch:
+            mock_batch.return_value = {
+                "app/main.py": "from fastapi import FastAPI\napp = FastAPI()\n@app.get(\"/\")\ndef root(): pass",
+                "src/foo.py": "x = 1",
             }
 
             resp = client.post("/api/analyze", json={"repo_url": "https://github.com/test/repo"})
@@ -138,19 +140,21 @@ def test_analyze_includes_code_analysis_section(client: TestClient, db):
             assert len(code_section["checks"]) > 0
 
 
-def test_analyze_continues_when_ingest_fails(client: TestClient, db):
-    """Test that when repo_ingest raises, report is still stored with existing sections (no crash)."""
+def test_analyze_continues_when_batch_fetch_fails(client: TestClient, db):
+    """Test that when batch_fetch_text raises, report is still stored with other sections (no crash)."""
     with patch("app.api.reports.fetch_repo") as mock_fetch:
         mock_fetch.return_value = {
             "owner": "test",
             "name": "repo",
             "default_branch": "main",
+            "tree_blobs": [{"path": "README.md", "sha": "x"}],
+            "tree_paths": ["README.md"],
             "key_files": [{"path": "README.md", "found": True, "snippet": "Hi", "size": 2, "truncated": False}],
             "workflows": [],
             "test_folders_detected": [],
         }
-        with patch("app.api.reports.ingest_repo") as mock_ingest:
-            mock_ingest.side_effect = Exception("Ingest failed")
+        with patch("app.api.reports.batch_fetch_text") as mock_batch:
+            mock_batch.side_effect = Exception("Batch fetch failed")
 
             resp = client.post("/api/analyze", json={"repo_url": "https://github.com/test/repo"})
             assert resp.status_code == 200
@@ -162,4 +166,7 @@ def test_analyze_continues_when_ingest_fails(client: TestClient, db):
             sections = (report.get("findings_json") or {}).get("sections") or []
             section_names = [s.get("name") for s in sections]
             assert "Runability" in section_names
-            assert "Code Analysis" not in section_names
+            # Code Analysis may be present but empty when content_by_path is empty
+            code_section = next((s for s in sections if s.get("name") == "Code Analysis"), None)
+            if code_section is not None:
+                assert len(code_section.get("checks") or []) == 0
