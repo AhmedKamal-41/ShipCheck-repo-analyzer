@@ -245,6 +245,21 @@ def _fetch_repo_impl(sess: requests.Session, owner: str, name: str) -> dict[str,
     data = r.json()
     tree = data.get("tree") or []
 
+    tree_blobs: list[dict[str, Any]] = []
+    tree_paths: list[str] = []
+    for n in tree:
+        if n.get("type") != "blob":
+            continue
+        path = n.get("path") or ""
+        sha = n.get("sha") or ""
+        if not path or not sha:
+            continue
+        entry: dict[str, Any] = {"path": path, "sha": sha}
+        if "size" in n:
+            entry["size"] = n["size"]
+        tree_blobs.append(entry)
+        tree_paths.append(path)
+
     paths_set = {n["path"] for n in tree}
     workflows: list[str] = []
     for n in tree:
@@ -343,6 +358,8 @@ def _fetch_repo_impl(sess: requests.Session, owner: str, name: str) -> dict[str,
         "owner": owner,
         "name": name,
         "default_branch": default_branch,
+        "tree_blobs": tree_blobs,
+        "tree_paths": tree_paths,
         "key_files": key_files,
         "workflows": workflow_entries,
         "test_folders_detected": test_folders_detected,
