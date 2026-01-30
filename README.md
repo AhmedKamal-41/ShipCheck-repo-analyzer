@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 
-HireLens analyzes GitHub repositories and produces a scored report plus tailored interview questions. Replace `OWNER/REPO` in the badge with your GitHub org/repo.
+HireLens analyzes public GitHub repositories and produces a scored report plus tailored interview questions. Analysis is **read-only**: it fetches repo metadata and source files via the GitHub API and statically analyzes them—**no repository code is executed**. Replace `OWNER/REPO` in the badge with your GitHub org/repo.
 
 ---
 
 ## Problem
 
-Hiring managers and recruiters need a quick signal of repo quality—runability, tests, CI, docs, secrets hygiene. Manually inspecting dozens of candidate repos is tedious. HireLens automates a first-pass, rules-based analysis and outputs a report with an overall score, section breakdowns, and an interview pack.
+Hiring managers and recruiters need a quick signal of repo quality—runability, tests, CI, docs, secrets hygiene, and code structure. Manually inspecting dozens of candidate repos is tedious. HireLens automates a first-pass, rules-based analysis and outputs a report with an overall score, section breakdowns (including code analysis), and an interview pack.
 
 ---
 
@@ -26,7 +26,7 @@ Hiring managers and recruiters need a quick signal of repo quality—runability,
 | **Frontend** | Next.js (App Router), TypeScript, Tailwind |
 | **Backend** | FastAPI, SQLAlchemy, Alembic |
 | **Infra** | Docker Compose, Postgres |
-| **External** | GitHub REST API (repo metadata) |
+| **External** | GitHub REST API (repo metadata + tree/blobs for code analysis) |
 
 See [docs/architecture.md](docs/architecture.md) for more detail.
 
@@ -39,15 +39,17 @@ See [docs/architecture.md](docs/architecture.md) for more detail.
 
 2. **Backend**  
    - `cd backend && python -m venv .venv`  
-   - `pip install -r requirements.txt` (use `.venv\Scripts\pip` on Windows)  
-   - Copy `backend/.env.example` to `backend/.env`; set `DATABASE_URL` if needed, `GITHUB_TOKEN` (optional, for higher GitHub rate limits).  
+   - Activate the venv (e.g. `.venv\Scripts\activate` on Windows, `source .venv/bin/activate` on macOS/Linux).  
+   - `pip install -r requirements.txt`  
+   - Copy `backend/.env.example` to `backend/.env`; set `DATABASE_URL` if needed, `CORS_ORIGINS` (e.g. `http://localhost:3000`), and optionally `GITHUB_TOKEN` for higher GitHub API rate limits.  
    - `alembic upgrade head`  
    - `uvicorn app.main:app --reload --port 8000`
 
 3. **Frontend**  
-   - `cd frontend && npm install && npm run dev`
+   - `cd frontend && npm install && npm run dev`  
+   - Optionally create `frontend/.env.local` with `NEXT_PUBLIC_API_BASE=http://localhost:8000` so the app talks to your local backend (this is the default if unset).
 
-Use the root `Makefile` for shortcuts (`make infra-up`, `make dev-backend`, `make dev-frontend`, etc.) if you have `make`.
+Use the root `Makefile` for shortcuts (`make infra-up`, `make dev-backend`, `make dev-frontend`, etc.) if you have `make`. Open **http://localhost:3000** in your browser.
 
 ---
 
@@ -68,10 +70,22 @@ Use the root `Makefile` for shortcuts (`make infra-up`, `make dev-backend`, `mak
 |--------|------|---------|
 | `GET` | `/health` | Liveness |
 | `GET` | `/db-check` | DB connectivity (debug) |
-| `POST` | `/api/analyze` | Analyze a repo. Body: `{ "repo_url": "https://github.com/owner/repo" }`. Returns `{ "report_id": "..." }`. |
-| `GET` | `/api/reports/{id}` | Full report (score, sections, interview pack). |
+| `POST` | `/api/analyze` | Analyze a public GitHub repo (read-only; no code execution). Body: `{ "repo_url": "https://github.com/owner/repo" }`. Returns `{ "report_id": "..." }`. |
+| `GET` | `/api/reports/{id}` | Full report (score, sections including Code Analysis, interview pack). |
 | `GET` | `/api/reports?limit=20` | List latest reports. |
 | `POST` | `/api/fetch-repo` | Dev-only: fetch repo metadata (no DB). |
+
+---
+
+## Report sections
+
+Reports include:
+
+- **Runability** – README install/run hints, Docker support.
+- **Engineering Quality** – Tests, CI, lint/format, dependency pinning.
+- **Secrets Safety** – .env.example, possible secret patterns in key files.
+- **Documentation** – README length and structure.
+- **Code Analysis** – Language breakdown, framework detection (FastAPI/Flask/Next/Express), endpoint discovery, architecture hints, quality signals (lint/format/typecheck/test), and security signals (secrets + dangerous patterns). Evidence includes file path and line range. Large repos are truncated by file/byte limits.
 
 ---
 
@@ -79,8 +93,9 @@ Use the root `Makefile` for shortcuts (`make infra-up`, `make dev-backend`, `mak
 
 **Limitations**
 
+- Only **public** GitHub repos; GitHub API read-only. No repository code is executed.
 - GitHub rate-limits unauthenticated requests; without `GITHUB_TOKEN`, you may hit limits quickly. **Demo mode:** when rate-limited and no token, the app falls back to a bundled sample fixture so demos still work.
-- Analysis is rules-based (no LLM), best-effort only.
+- Analysis is rules-based (no LLM), best-effort only. Code analysis uses AST/regex only; large repos may be partially analyzed due to limits.
 
 **Roadmap**
 
@@ -167,7 +182,10 @@ Tests run automatically on every push and pull request via GitHub Actions. See [
 
 | Path | Description |
 |------|-------------|
-| `backend/` | FastAPI app, analyzer, GitHub client, DB models |
+| `backend/` | FastAPI app, analyzer, GitHub client, repo ingest, DB models |
+| `backend/app/analyzers/code/` | Code analyzers (language, FastAPI/JS routes, quality, security) |
+| `backend/app/core/repo_limits.py` | File/byte limits and path filters for ingestion |
+| `backend/app/services/repo_ingest.py` | Tree + blob fetch and text file ingestion |
 | `backend/tests/` | Backend unit and integration tests |
 | `frontend/` | Next.js App Router, report UI |
 | `frontend/tests/` | Frontend E2E tests (Playwright) |
