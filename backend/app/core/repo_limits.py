@@ -3,6 +3,7 @@
 import os
 
 MAX_FILES = 500
+MAX_FILES_FETCH = 250  # cap for how many blobs to fetch content for
 MAX_TOTAL_BYTES = 5 * 1024 * 1024  # 5 MB
 MAX_FILE_BYTES = 200_000  # 200 KB, align with github_client
 
@@ -19,6 +20,7 @@ SKIP_DIRS = frozenset({
     ".ruff_cache",
     ".pytest_cache",
     ".tox",
+    "target",
     "vendor",
     "coverage",
     ".coverage",
@@ -39,8 +41,8 @@ SKIP_EXTS = frozenset({
     ".mp3", ".mp4", ".webm", ".mov", ".avi",
 })
 
-# Path suffixes for minified files
-SKIP_MINIFIED_SUFFIXES = (".min.js", ".min.css", ".min.mjs")
+# Path suffixes for minified / source-map files
+SKIP_MINIFIED_SUFFIXES = (".min.js", ".min.css", ".min.mjs", ".map")
 
 
 def should_skip_path(path: str) -> bool:
