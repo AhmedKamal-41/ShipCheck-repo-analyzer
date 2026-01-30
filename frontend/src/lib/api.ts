@@ -5,7 +5,12 @@ export type CheckFinding = {
   id: string;
   name: string;
   status: "pass" | "warn" | "fail";
-  evidence: { file: string; snippet: string };
+  evidence: {
+    file: string;
+    snippet: string;
+    start_line?: number;
+    end_line?: number;
+  };
   recommendation: string;
   points: number;
 };
