@@ -11,9 +11,18 @@ interface CheckRowProps {
 
 export function CheckRow({ check }: CheckRowProps) {
   const [open, setOpen] = useState(false);
-  const { file, snippet } = check.evidence ?? { file: "—", snippet: "" };
+  const { file, snippet, start_line, end_line } = check.evidence ?? {
+    file: "—",
+    snippet: "",
+  };
   const hasDetails =
     (file && file !== "—") || !!snippet || !!check.recommendation;
+  const fileLabel =
+    file && file !== "—"
+      ? start_line != null && end_line != null
+        ? `${file} (L${start_line}–${end_line})`
+        : file
+      : null;
 
   return (
     <div className="rounded-lg border border-[#d0d7de] bg-[#f6f8fa] p-3">
@@ -48,9 +57,10 @@ export function CheckRow({ check }: CheckRowProps) {
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[#57606a]">
                 Evidence
               </p>
-              {file && file !== "—" && (
+              {fileLabel && (
                 <p className="text-sm text-[#57606a]">
-                  <span className="font-medium text-[#1f2328]">File:</span> {file}
+                  <span className="font-medium text-[#1f2328]">File:</span>{" "}
+                  {fileLabel}
                 </p>
               )}
               {snippet && (
