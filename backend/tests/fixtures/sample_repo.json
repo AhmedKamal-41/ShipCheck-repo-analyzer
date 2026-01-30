@@ -1,0 +1,44 @@
+{
+  "owner": "demo",
+  "name": "sample-repo",
+  "default_branch": "main",
+  "tree_blobs": [
+    {"path": "README.md", "sha": "abc1", "size": 120},
+    {"path": "Dockerfile", "sha": "abc2", "size": 90},
+    {"path": ".env.example", "sha": "abc3", "size": 30},
+    {"path": ".github/workflows/ci.yml", "sha": "abc4", "size": 100}
+  ],
+  "tree_paths": ["README.md", "Dockerfile", ".env.example", ".github/workflows/ci.yml", "tests/unit/test_foo.js"],
+  "key_files": [
+    {
+      "path": "README.md",
+      "found": true,
+      "snippet": "## Setup\n\nInstall deps: `npm install`. Run: `npm run dev` or `docker compose up`.\n\n## Usage\n\nSee docs.",
+      "size": 120,
+      "truncated": false
+    },
+    {
+      "path": "Dockerfile",
+      "found": true,
+      "snippet": "FROM node:20\nWORKDIR /app\nCOPY . .\nRUN npm ci\nCMD [\"npm\", \"run\", \"start\"]",
+      "size": 90,
+      "truncated": false
+    },
+    {
+      "path": ".env.example",
+      "found": true,
+      "snippet": "API_KEY=\nDATABASE_URL=",
+      "size": 30,
+      "truncated": false
+    }
+  ],
+  "workflows": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "snippet": "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+      "size": 100,
+      "truncated": false
+    }
+  ],
+  "test_folders_detected": ["tests"]
+}
