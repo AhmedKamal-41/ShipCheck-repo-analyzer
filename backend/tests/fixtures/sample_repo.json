@@ -2,6 +2,13 @@
   "owner": "demo",
   "name": "sample-repo",
   "default_branch": "main",
+  "tree_blobs": [
+    {"path": "README.md", "sha": "abc1", "size": 120},
+    {"path": "Dockerfile", "sha": "abc2", "size": 90},
+    {"path": ".env.example", "sha": "abc3", "size": 30},
+    {"path": ".github/workflows/ci.yml", "sha": "abc4", "size": 100}
+  ],
+  "tree_paths": ["README.md", "Dockerfile", ".env.example", ".github/workflows/ci.yml", "tests/unit/test_foo.js"],
   "key_files": [
     {
       "path": "README.md",
