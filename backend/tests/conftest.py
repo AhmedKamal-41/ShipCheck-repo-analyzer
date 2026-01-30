@@ -75,7 +75,7 @@ def client(db: Session):
     app.dependency_overrides[get_db] = override_get_db
 
     with patch("app.api.reports.fetch_repo", return_value=_mock_fetch_result()):
-        with patch("app.api.reports.ingest_repo", return_value={"files": {}, "stats": {}}):
+        with patch("app.api.reports.batch_fetch_text", return_value={}):
             with patch("app.api.reports.check_analyze_rate_limit"):
                 yield TestClient(app)
 
