@@ -1,5 +1,6 @@
 """Rules-based analyzer: fetch_result -> ReportResult (sections, checks, overall_score)."""
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -41,6 +42,39 @@ def _truncate(s: str, n: int = EVIDENCE_SNIPPET_MAX) -> str:
     return s[:n] + "..."
 
 
+def _tree_paths(fetch_result: dict[str, Any]) -> list[str]:
+    """All blob paths from full tree (full repo scan)."""
+    return list(fetch_result.get("tree_paths") or [])
+
+
+def _find_path(fetch_result: dict[str, Any], predicate: Any) -> str | None:
+    """First path in tree_paths matching predicate(path)."""
+    for path in _tree_paths(fetch_result):
+        if predicate(path):
+            return path
+    return None
+
+
+def _find_paths(fetch_result: dict[str, Any], predicate: Any) -> list[str]:
+    """All paths in tree_paths matching predicate(path)."""
+    return [p for p in _tree_paths(fetch_result) if predicate(p)]
+
+
+def _get_content_for_path(
+    fetch_result: dict[str, Any], content_by_path: dict[str, str] | None, path: str
+) -> str:
+    """Content for path: content_by_path first, else key_files snippet (backward compat)."""
+    if content_by_path and path in content_by_path:
+        return content_by_path[path] or ""
+    key_files = fetch_result.get("key_files") or []
+    for e in key_files:
+        if e.get("path") == path:
+            if e.get("skipped"):
+                return ""
+            return e.get("snippet") or ""
+    return ""
+
+
 def _get_key_file(fetch_result: dict[str, Any], path: str) -> dict[str, Any] | None:
     key_files = fetch_result.get("key_files") or []
     for e in key_files:
@@ -49,8 +83,27 @@ def _get_key_file(fetch_result: dict[str, Any], path: str) -> dict[str, Any] | N
     return None
 
 
+def _readme_path_and_content(
+    fetch_result: dict[str, Any], content_by_path: dict[str, str] | None
+) -> tuple[str | None, str, bool]:
+    """Return (path, snippet, exists). Uses tree_paths for README* anywhere."""
+    def is_readme(p: str) -> bool:
+        base = os.path.basename(p).upper()
+        return base.startswith("README")
+    paths = _find_paths(fetch_result, is_readme)
+    if not paths:
+        return None, "", False
+    path = paths[0]
+    content = _get_content_for_path(fetch_result, content_by_path, path)
+    return path, content, True
+
+
 def _readme(fetch_result: dict[str, Any]) -> tuple[str, bool]:
-    """Return (snippet, exists)."""
+    """Return (snippet, exists). Backward compat: root README.md only if no tree_paths."""
+    tree_paths = _tree_paths(fetch_result)
+    if tree_paths:
+        path, content, exists = _readme_path_and_content(fetch_result, None)
+        return content, exists
     e = _get_key_file(fetch_result, "README.md")
     if not e:
         return "", False
@@ -63,11 +116,19 @@ def _workflows(fetch_result: dict[str, Any]) -> list[dict[str, Any]]:
     return fetch_result.get("workflows") or []
 
 
-def _runability_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
+def _runability_checks(
+    fetch_result: dict[str, Any], content_by_path: dict[str, str] | None = None
+) -> list[CheckResult]:
     results: list[CheckResult] = []
-    readme_snippet, readme_exists = _readme(fetch_result)
+    readme_path, readme_snippet, readme_exists = _readme_path_and_content(
+        fetch_result, content_by_path
+    )
+    if not readme_exists:
+        readme_snippet, readme_exists = _readme(fetch_result)
+        readme_path = "README.md" if readme_exists else None
     run_keywords = ["install", "run", "docker", "uvicorn", "npm run"]
-    has_run_hint = any(kw in readme_snippet.lower() for kw in run_keywords)
+    has_run_hint = any(kw in (readme_snippet or "").lower() for kw in run_keywords)
+    ev_file = readme_path or "—"
 
     if not readme_exists:
         results.append(CheckResult(
@@ -83,7 +144,7 @@ def _runability_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             id="runability_readme_install_run",
             name="README install/run",
             status="pass",
-            evidence={"file": "README.md", "snippet": _truncate(readme_snippet)},
+            evidence={"file": ev_file, "snippet": _truncate(readme_snippet or "")},
             recommendation="README has install/run instructions.",
             points=POINTS_PASS,
         ))
@@ -92,20 +153,29 @@ def _runability_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             id="runability_readme_install_run",
             name="README install/run",
             status="warn",
-            evidence={"file": "README.md", "snippet": _truncate(readme_snippet)},
+            evidence={"file": ev_file, "snippet": _truncate(readme_snippet or "")},
             recommendation="Add install/run/docker/uvicorn/npm run instructions to README.",
             points=POINTS_WARN,
         ))
 
-    dockerfile = _get_key_file(fetch_result, "Dockerfile")
-    compose = _get_key_file(fetch_result, "docker-compose.yml")
-    has_docker = bool(dockerfile or compose)
-    ev_file = "Dockerfile" if dockerfile else ("docker-compose.yml" if compose else "—")
+    docker_path = _find_path(fetch_result, lambda p: p.endswith("Dockerfile"))
+    compose_path = _find_path(
+        fetch_result,
+        lambda p: p.endswith("docker-compose.yml") or p.endswith("docker-compose.yaml"),
+    )
+    if not docker_path and _get_key_file(fetch_result, "Dockerfile"):
+        docker_path = "Dockerfile"
+    if not compose_path and _get_key_file(fetch_result, "docker-compose.yml"):
+        compose_path = "docker-compose.yml"
+    has_docker = bool(docker_path or compose_path)
+    ev_file = docker_path or compose_path or "—"
     ev_snip = ""
-    if dockerfile and dockerfile.get("snippet"):
-        ev_snip = _truncate(dockerfile["snippet"])
-    elif compose and compose.get("snippet"):
-        ev_snip = _truncate(compose["snippet"])
+    if docker_path:
+        ev_snip = _truncate(_get_content_for_path(fetch_result, content_by_path, docker_path)) or f"Found: {docker_path}"
+    elif compose_path:
+        ev_snip = _truncate(_get_content_for_path(fetch_result, content_by_path, compose_path)) or f"Found: {compose_path}"
+    if not ev_snip and has_docker:
+        ev_snip = f"Found: {ev_file}"
 
     if has_docker:
         results.append(CheckResult(
@@ -129,8 +199,13 @@ def _runability_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
     return results
 
 
-def _engineering_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
+def _engineering_checks(
+    fetch_result: dict[str, Any], content_by_path: dict[str, str] | None = None
+) -> list[CheckResult]:
     results: list[CheckResult] = []
+    tree_paths = _tree_paths(fetch_result)
+    test_prefixes = ("tests/", "__tests__/", "src/test/", "src/tests/")
+    test_paths = [p for p in tree_paths if any(p.startswith(pr) for pr in test_prefixes)]
     test_folders = fetch_result.get("test_folders_detected") or []
     workflows = _workflows(fetch_result)
     test_in_workflows = False
@@ -143,12 +218,14 @@ def _engineering_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             wf_ev_snip = _truncate(w.get("snippet") or "")
             break
 
-    if test_folders:
+    has_tests = bool(test_paths or test_folders)
+    ev_test = (test_paths[0] if test_paths else test_folders[0]) if has_tests else "—"
+    if has_tests:
         results.append(CheckResult(
             id="engineering_tests",
             name="Tests",
             status="pass",
-            evidence={"file": test_folders[0], "snippet": ""},
+            evidence={"file": ev_test, "snippet": f"Found: {ev_test}"},
             recommendation="Tests detected.",
             points=POINTS_PASS,
         ))
@@ -171,13 +248,19 @@ def _engineering_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             points=POINTS_FAIL,
         ))
 
-    if workflows:
-        w = workflows[0]
+    ci_paths = _find_paths(
+        fetch_result,
+        lambda p: p.startswith(".github/workflows/") and (p.endswith(".yml") or p.endswith(".yaml")),
+    )
+    has_ci = bool(ci_paths or workflows)
+    ci_ev_path = ci_paths[0] if ci_paths else (workflows[0].get("path") if workflows else "—")
+    ci_ev_snip = _get_content_for_path(fetch_result, content_by_path, ci_ev_path) if ci_ev_path != "—" else (workflows[0].get("snippet") if workflows else "")
+    if has_ci:
         results.append(CheckResult(
             id="engineering_ci",
             name="CI",
             status="pass",
-            evidence={"file": w.get("path") or "—", "snippet": _truncate(w.get("snippet") or "")},
+            evidence={"file": ci_ev_path, "snippet": _truncate(ci_ev_snip or f"Found: {ci_ev_path}")},
             recommendation="CI present.",
             points=POINTS_PASS,
         ))
@@ -191,39 +274,48 @@ def _engineering_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             points=POINTS_FAIL,
         ))
 
-    pkg = _get_key_file(fetch_result, "package.json")
-    pyproject = _get_key_file(fetch_result, "pyproject.toml")
-    reqs = _get_key_file(fetch_result, "requirements.txt")
-    scripts_snip = (pkg.get("snippet") or "") if pkg else ""
-    py_snip = (pyproject.get("snippet") or "") if pyproject else ""
-    req_snip = (reqs.get("snippet") or "") if reqs else ""
-    lint_in_scripts = any(
-        x in scripts_snip.lower() for x in ["eslint", "prettier", "lint", "format"]
-    )
+    lint_patterns = (".prettierrc", ".eslintrc", "eslint.config", "ruff.toml", "pyproject.toml", "mypy.ini", "tox.ini")
+    lint_paths = [p for p in tree_paths if any(os.path.basename(p).lower().startswith(x) or x in p for x in lint_patterns)]
+    scripts_snip = ""
+    py_snip = ""
+    req_snip = ""
+    for path in ["package.json", "pyproject.toml", "requirements.txt"]:
+        content = _get_content_for_path(fetch_result, content_by_path, path)
+        if path == "package.json":
+            scripts_snip = content
+        elif path == "pyproject.toml":
+            py_snip = content
+        else:
+            req_snip = content
+    for p in tree_paths:
+        if p.endswith("package.json") and not scripts_snip:
+            scripts_snip = _get_content_for_path(fetch_result, content_by_path, p)
+        if p.endswith("pyproject.toml") and not py_snip:
+            py_snip = _get_content_for_path(fetch_result, content_by_path, p)
+        if "requirements" in p and p.endswith(".txt") and not req_snip:
+            req_snip = _get_content_for_path(fetch_result, content_by_path, p)
+    lint_in_scripts = any(x in scripts_snip.lower() for x in ["eslint", "prettier", "lint", "format"])
     lint_in_py = any(x in py_snip.lower() for x in ["ruff", "black", "mypy", "flake8"])
     lint_in_reqs = any(x in req_snip.lower() for x in ["ruff", "black", "mypy", "flake8"])
-    has_lint = lint_in_scripts or lint_in_py or lint_in_reqs
-    has_config = bool(pkg or pyproject or reqs)
+    has_lint = bool(lint_paths) or lint_in_scripts or lint_in_py or lint_in_reqs
+    ev_lint = lint_paths[0] if lint_paths else ("package.json" if lint_in_scripts else ("pyproject.toml" if lint_in_py else "requirements.txt"))
+    ev_lint_snip = _truncate(_get_content_for_path(fetch_result, content_by_path, ev_lint) if ev_lint else (scripts_snip or py_snip or req_snip)) or f"Found: {ev_lint}"
 
     if has_lint:
-        ev_file = "package.json" if lint_in_scripts else ("pyproject.toml" if lint_in_py else "requirements.txt")
-        ev_snip = _truncate(scripts_snip or py_snip or req_snip)
         results.append(CheckResult(
             id="engineering_lint_format",
             name="Lint/format",
             status="pass",
-            evidence={"file": ev_file, "snippet": ev_snip},
+            evidence={"file": ev_lint, "snippet": ev_lint_snip},
             recommendation="Lint/format present.",
             points=POINTS_PASS,
         ))
-    elif has_config:
-        ev_file = (pkg and "package.json") or (pyproject and "pyproject.toml") or "requirements.txt"
-        ev_snip = _truncate(scripts_snip or py_snip or req_snip)
+    elif scripts_snip or py_snip or req_snip:
         results.append(CheckResult(
             id="engineering_lint_format",
             name="Lint/format",
             status="warn",
-            evidence={"file": ev_file, "snippet": ev_snip},
+            evidence={"file": ev_lint, "snippet": ev_lint_snip},
             recommendation="Add lint/format scripts or config (eslint, prettier, ruff, black).",
             points=POINTS_WARN,
         ))
@@ -237,31 +329,39 @@ def _engineering_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             points=POINTS_FAIL,
         ))
 
-    lockfiles = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock"]
-    has_lock = any(_get_key_file(fetch_result, lf) for lf in lockfiles)
-    reqs_file = _get_key_file(fetch_result, "requirements.txt")
-    pinned_reqs = "==" in (reqs_file.get("snippet") or "") if reqs_file else False
-    has_reqs = bool(reqs_file)
+    lockfile_names = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "Pipfile.lock")
+    lock_paths = [p for p in tree_paths if any(p.endswith(lf) for lf in lockfile_names)]
+    if not lock_paths:
+        for lf in lockfile_names:
+            if _get_key_file(fetch_result, lf):
+                lock_paths = [lf]
+                break
+    has_lock = bool(lock_paths)
+    reqs_path = _find_path(fetch_result, lambda p: "requirements" in p and p.endswith(".txt"))
+    if not reqs_path and _get_key_file(fetch_result, "requirements.txt"):
+        reqs_path = "requirements.txt"
+    reqs_content = _get_content_for_path(fetch_result, content_by_path, reqs_path or "") if reqs_path else ""
+    pinned_reqs = "==" in reqs_content
+    has_reqs = bool(reqs_path or _get_key_file(fetch_result, "requirements.txt"))
 
     if has_lock or pinned_reqs:
-        ev_file = next((lf for lf in lockfiles if _get_key_file(fetch_result, lf)), "requirements.txt")
-        e = _get_key_file(fetch_result, ev_file)
-        ev_snip = _truncate(e.get("snippet") or "") if e else ""
+        ev_pin = lock_paths[0] if lock_paths else (reqs_path or "requirements.txt")
+        ev_pin_snip = _truncate(_get_content_for_path(fetch_result, content_by_path, ev_pin)) or f"Found: {ev_pin}"
         results.append(CheckResult(
             id="engineering_pinning",
             name="Dependency pinning",
             status="pass",
-            evidence={"file": ev_file, "snippet": ev_snip},
+            evidence={"file": ev_pin, "snippet": ev_pin_snip},
             recommendation="Dependencies pinned.",
             points=POINTS_PASS,
         ))
     elif has_reqs:
-        ev_snip = _truncate(reqs_file.get("snippet") or "")
+        ev_pin_snip = _truncate(reqs_content)
         results.append(CheckResult(
             id="engineering_pinning",
             name="Dependency pinning",
             status="warn",
-            evidence={"file": "requirements.txt", "snippet": ev_snip},
+            evidence={"file": reqs_path or "requirements.txt", "snippet": ev_pin_snip},
             recommendation="Use lockfiles or pin versions (==) in requirements.txt.",
             points=POINTS_WARN,
         ))
@@ -278,15 +378,22 @@ def _engineering_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
     return results
 
 
-def _secrets_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
+def _secrets_checks(
+    fetch_result: dict[str, Any], content_by_path: dict[str, str] | None = None
+) -> list[CheckResult]:
     results: list[CheckResult] = []
-    env_ex = _get_key_file(fetch_result, ".env.example")
-    if env_ex:
+    env_ex_path = _find_path(fetch_result, lambda p: ".env.example" in p or p.endswith(".env.example"))
+    env_ex_content = _get_content_for_path(fetch_result, content_by_path, env_ex_path or "") if env_ex_path else ""
+    if not env_ex_path:
+        k = _get_key_file(fetch_result, ".env.example")
+        env_ex_path = ".env.example" if k else None
+        env_ex_content = (k.get("snippet") or "") if k else ""
+    if env_ex_path:
         results.append(CheckResult(
             id="secrets_env_example",
             name=".env.example",
             status="pass",
-            evidence={"file": ".env.example", "snippet": _truncate(env_ex.get("snippet") or "")},
+            evidence={"file": env_ex_path, "snippet": _truncate(env_ex_content) or f"Found: {env_ex_path}"},
             recommendation="Has .env.example.",
             points=POINTS_PASS,
         ))
@@ -307,20 +414,21 @@ def _secrets_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
         (r"Bearer\s+[a-zA-Z0-9_\-]{20,}", "Bearer token"),
     ]
     scans: list[tuple[str, str]] = []
-    for path in ["README.md", "package.json", "Dockerfile", "docker-compose.yml", ".env.example"]:
-        e = _get_key_file(fetch_result, path)
-        if not e or e.get("skipped"):
+    paths_to_scan: list[tuple[str, str]] = []
+    if content_by_path:
+        for path, content in content_by_path.items():
+            paths_to_scan.append((path, content))
+    for e in fetch_result.get("key_files") or []:
+        path = e.get("path") or ""
+        if e.get("skipped"):
             continue
-        snip = e.get("snippet") or ""
+        paths_to_scan.append((path, e.get("snippet") or ""))
+    for w in _workflows(fetch_result):
+        paths_to_scan.append((w.get("path") or "workflow", w.get("snippet") or ""))
+    for path, snip in paths_to_scan:
         for pat, label in patterns:
             if re.search(pat, snip, re.IGNORECASE):
                 scans.append((path, label))
-                break
-    for w in _workflows(fetch_result):
-        snip = w.get("snippet") or ""
-        for pat, label in patterns:
-            if re.search(pat, snip, re.IGNORECASE):
-                scans.append((w.get("path") or "workflow", label))
                 break
 
     if not scans:
@@ -346,14 +454,35 @@ def _secrets_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
     return results
 
 
-def _documentation_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
+def _documentation_checks(
+    fetch_result: dict[str, Any], content_by_path: dict[str, str] | None = None
+) -> list[CheckResult]:
     results: list[CheckResult] = []
-    readme_snippet, readme_exists = _readme(fetch_result)
-    n = len(readme_snippet)
-    section_markers = ["## usage", "## setup", "## installation", "## getting started"]
-    has_section = any(m in readme_snippet.lower() for m in section_markers)
-
+    readme_path, readme_snippet, readme_exists = _readme_path_and_content(
+        fetch_result, content_by_path
+    )
     if not readme_exists:
+        readme_snippet, readme_exists = _readme(fetch_result)
+        readme_path = "README.md" if readme_exists else None
+    n = len(readme_snippet or "")
+    section_markers = ["## usage", "## setup", "## installation", "## getting started"]
+    has_section = any(m in (readme_snippet or "").lower() for m in section_markers)
+    doc_ev_file = readme_path or "—"
+
+    doc_paths = _find_paths(
+        fetch_result,
+        lambda p: (
+            os.path.basename(p).upper().startswith("README")
+            or p.startswith("docs/")
+            or os.path.basename(p).upper().startswith("CONTRIBUTING")
+            or os.path.basename(p).upper().startswith("SECURITY")
+            or os.path.basename(p).upper().startswith("CHANGELOG")
+            or os.path.basename(p).upper().startswith("LICENSE")
+        ),
+    )
+    has_doc = bool(doc_paths) or readme_exists
+
+    if not has_doc:
         results.append(CheckResult(
             id="documentation_readme_length",
             name="README length",
@@ -367,7 +496,7 @@ def _documentation_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             id="documentation_readme_length",
             name="README length",
             status="pass",
-            evidence={"file": "README.md", "snippet": f"length={n}"},
+            evidence={"file": doc_ev_file, "snippet": f"length={n}"},
             recommendation="README sufficient.",
             points=POINTS_PASS,
         ))
@@ -376,12 +505,12 @@ def _documentation_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             id="documentation_readme_length",
             name="README length",
             status="warn",
-            evidence={"file": "README.md", "snippet": f"length={n}"},
+            evidence={"file": doc_ev_file, "snippet": f"length={n}"},
             recommendation="Expand README (e.g. ≥500 chars).",
             points=POINTS_WARN,
         ))
 
-    if not readme_exists:
+    if not has_doc:
         results.append(CheckResult(
             id="documentation_readme_sections",
             name="README sections",
@@ -395,7 +524,7 @@ def _documentation_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             id="documentation_readme_sections",
             name="README sections",
             status="pass",
-            evidence={"file": "README.md", "snippet": _truncate(readme_snippet)},
+            evidence={"file": doc_ev_file, "snippet": _truncate(readme_snippet or "") or f"Found: {doc_ev_file}"},
             recommendation="README has structure.",
             points=POINTS_PASS,
         ))
@@ -404,7 +533,7 @@ def _documentation_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
             id="documentation_readme_sections",
             name="README sections",
             status="warn",
-            evidence={"file": "README.md", "snippet": _truncate(readme_snippet)},
+            evidence={"file": doc_ev_file, "snippet": _truncate(readme_snippet or "") or f"Found: {doc_ev_file}"},
             recommendation="Add Usage/Setup/Installation section.",
             points=POINTS_WARN,
         ))
@@ -412,10 +541,14 @@ def _documentation_checks(fetch_result: dict[str, Any]) -> list[CheckResult]:
     return results
 
 
-def _detect_stack(fetch_result: dict[str, Any]) -> dict[str, bool]:
-    """Deterministic stack and gaps from fetch_result. Reuses existing helpers."""
+def _detect_stack(
+    fetch_result: dict[str, Any], content_by_path: dict[str, str] | None = None
+) -> dict[str, bool]:
+    """Deterministic stack and gaps from fetch_result. Uses tree_paths and content."""
     workflows = _workflows(fetch_result)
-    test_folders = fetch_result.get("test_folders_detected") or []
+    tree_paths = _tree_paths(fetch_result)
+    test_prefixes = ("tests/", "__tests__/", "src/test/", "src/tests/")
+    test_folders = [p for p in tree_paths if any(p.startswith(pr) for pr in test_prefixes)] or fetch_result.get("test_folders_detected") or []
     test_in_wf = False
     for w in workflows:
         snip = (w.get("snippet") or "").lower()
@@ -423,40 +556,62 @@ def _detect_stack(fetch_result: dict[str, Any]) -> dict[str, bool]:
             test_in_wf = True
             break
 
-    pkg = _get_key_file(fetch_result, "package.json")
-    pyproject = _get_key_file(fetch_result, "pyproject.toml")
-    reqs = _get_key_file(fetch_result, "requirements.txt")
-    scripts_snip = (pkg.get("snippet") or "").lower() if pkg else ""
-    py_snip = (pyproject.get("snippet") or "").lower() if pyproject else ""
-    req_snip = (reqs.get("snippet") or "").lower() if reqs else ""
+    scripts_snip = ""
+    py_snip = ""
+    req_snip = ""
+    for p in tree_paths:
+        if p.endswith("package.json"):
+            scripts_snip = _get_content_for_path(fetch_result, content_by_path, p).lower()
+            break
+    for p in tree_paths:
+        if p.endswith("pyproject.toml"):
+            py_snip = _get_content_for_path(fetch_result, content_by_path, p).lower()
+            break
+    for p in tree_paths:
+        if "requirements" in p and p.endswith(".txt"):
+            req_snip = _get_content_for_path(fetch_result, content_by_path, p).lower()
+            break
+    if not scripts_snip:
+        pkg = _get_key_file(fetch_result, "package.json")
+        scripts_snip = (pkg.get("snippet") or "").lower() if pkg else ""
+    if not py_snip:
+        pyproject = _get_key_file(fetch_result, "pyproject.toml")
+        py_snip = (pyproject.get("snippet") or "").lower() if pyproject else ""
+    if not req_snip:
+        reqs = _get_key_file(fetch_result, "requirements.txt")
+        req_snip = (reqs.get("snippet") or "").lower() if reqs else ""
     lint_kw = ["eslint", "prettier", "lint", "format", "ruff", "black", "mypy", "flake8"]
-    has_lint = any(
-        kw in scripts_snip or kw in py_snip or kw in req_snip for kw in lint_kw
-    )
+    has_lint = any(kw in scripts_snip or kw in py_snip or kw in req_snip for kw in lint_kw)
 
-    readme_snippet, readme_exists = _readme(fetch_result)
+    readme_path, readme_snippet, readme_exists = _readme_path_and_content(fetch_result, content_by_path)
+    if not readme_exists:
+        readme_snippet, readme_exists = _readme(fetch_result)
     section_markers = ["## usage", "## setup", "## installation", "## getting started"]
-    has_section = any(m in readme_snippet.lower() for m in section_markers)
-    readme_ok = readme_exists and len(readme_snippet) >= 500 and has_section
+    has_section = any(m in (readme_snippet or "").lower() for m in section_markers)
+    readme_ok = readme_exists and len(readme_snippet or "") >= 500 and has_section
 
-    has_node = bool(pkg)
-    has_python = bool(reqs or pyproject)
+    has_node = bool(_find_path(fetch_result, lambda p: p.endswith("package.json")))
+    has_python = bool(_find_path(fetch_result, lambda p: p.endswith("pyproject.toml") or ("requirements" in p and p.endswith(".txt"))))
     has_fastapi = has_python and ("fastapi" in req_snip or "fastapi" in py_snip)
     has_next = has_node and "next" in scripts_snip
 
+    has_docker = bool(
+        _find_path(fetch_result, lambda p: p.endswith("Dockerfile"))
+        or _find_path(fetch_result, lambda p: p.endswith("docker-compose.yml") or p.endswith("docker-compose.yaml"))
+    )
+    has_ci = bool(_find_paths(fetch_result, lambda p: p.startswith(".github/workflows/") and (p.endswith(".yml") or p.endswith(".yaml")))) or len(workflows) > 0
+    env_ex = _find_path(fetch_result, lambda p: ".env.example" in p or p.endswith(".env.example")) or _get_key_file(fetch_result, ".env.example")
+
     return {
-        "has_docker": bool(
-            _get_key_file(fetch_result, "Dockerfile")
-            or _get_key_file(fetch_result, "docker-compose.yml")
-        ),
-        "has_ci": len(workflows) > 0,
+        "has_docker": has_docker,
+        "has_ci": has_ci,
         "has_tests": len(test_folders) > 0 or test_in_wf,
         "has_node": has_node,
         "has_python": has_python,
         "has_fastapi": has_fastapi,
         "has_next": has_next,
         "has_lint": has_lint,
-        "has_env_example": bool(_get_key_file(fetch_result, ".env.example")),
+        "has_env_example": bool(env_ex),
         "readme_ok": readme_ok,
     }
 
@@ -497,12 +652,14 @@ def _generate_interview_pack(
     return out[:10]
 
 
-def _code_analysis_checks(ingested: dict[str, Any]) -> list[CheckResult]:
-    """Build Code Analysis section from ingested files. No code execution."""
+def _code_analysis_checks(
+    content_by_path: dict[str, str] | None, stats: dict[str, Any] | None = None
+) -> list[CheckResult]:
+    """Build Code Analysis section from content_by_path. No code execution."""
     from app.analyzers.code import run_code_analysis
 
-    files = ingested.get("files") or {}
-    stats = ingested.get("stats") or {}
+    files = content_by_path or {}
+    stats = stats or {}
     if not files:
         return []
 
@@ -612,30 +769,38 @@ def _code_analysis_checks(ingested: dict[str, Any]) -> list[CheckResult]:
     return checks
 
 
-def analyze(fetch_result: dict[str, Any], ingested: dict[str, Any] | None = None) -> ReportResult:
+def analyze(
+    fetch_result: dict[str, Any],
+    ingested: dict[str, Any] | None = None,
+    content_by_path: dict[str, str] | None = None,
+) -> ReportResult:
     fetch_result = fetch_result or {}
+    content = content_by_path
+    if content is None and ingested:
+        content = ingested.get("files") or {}
     sections: list[SectionResult] = []
 
-    run_checks = _runability_checks(fetch_result)
+    run_checks = _runability_checks(fetch_result, content)
     run_score = sum(c.points for c in run_checks)
     sections.append(SectionResult(name="Runability", checks=run_checks, score=run_score))
 
-    eng_checks = _engineering_checks(fetch_result)
+    eng_checks = _engineering_checks(fetch_result, content)
     eng_score = sum(c.points for c in eng_checks)
     sections.append(SectionResult(name="Engineering Quality", checks=eng_checks, score=eng_score))
 
-    sec_checks = _secrets_checks(fetch_result)
+    sec_checks = _secrets_checks(fetch_result, content)
     sec_score = sum(c.points for c in sec_checks)
     sections.append(SectionResult(name="Secrets Safety", checks=sec_checks, score=sec_score))
 
-    doc_checks = _documentation_checks(fetch_result)
+    doc_checks = _documentation_checks(fetch_result, content)
     doc_score = sum(c.points for c in doc_checks)
     sections.append(SectionResult(name="Documentation", checks=doc_checks, score=doc_score))
 
     code_checks: list[CheckResult] = []
     code_score = 0
-    if ingested and (ingested.get("files")):
-        code_checks = _code_analysis_checks(ingested)
+    if content:
+        code_stats = (ingested.get("stats") or {}) if ingested else {}
+        code_checks = _code_analysis_checks(content, code_stats)
         code_score = sum(c.points for c in code_checks)
         sections.append(SectionResult(name="Code Analysis", checks=code_checks, score=code_score))
 
@@ -645,7 +810,7 @@ def analyze(fetch_result: dict[str, Any], ingested: dict[str, Any] | None = None
     overall_score = round(100 * total / max_possible) if max_possible else 0
     overall_score = min(100, max(0, overall_score))
 
-    stack = _detect_stack(fetch_result)
+    stack = _detect_stack(fetch_result, content)
     interview_pack = _generate_interview_pack(fetch_result, stack)
 
     return ReportResult(
