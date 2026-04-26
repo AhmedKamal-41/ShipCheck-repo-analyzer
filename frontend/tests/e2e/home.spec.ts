@@ -3,22 +3,25 @@ import { test, expect } from '@playwright/test';
 test.describe('Home Page', () => {
   test('should load home page and display hero section', async ({ page }) => {
     await page.goto('/');
-    
-    // Check hero section is visible
+
+    // Hero h1
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    
-    // Check for key elements
-    await expect(page.getByText(/repository readiness/i).first()).toBeVisible();
+
+    // Hero subhead mentions the static-analysis pillars
+    await expect(
+      page.getByText(/static analysis across runability/i).first()
+    ).toBeVisible();
   });
 
   test('should display features section', async ({ page }) => {
     await page.goto('/');
-    
-    // Scroll to features or check they're visible
-    const featuresHeading = page.getByRole('heading', { name: /what we check/i }).or(
-      page.getByRole('heading', { name: /features/i })
-    );
-    await expect(featuresHeading.first()).toBeVisible({ timeout: 5000 });
+
+    // The features section uses an eyebrow ("What we check") above an h2.
+    // Match either the eyebrow text or the h2 title.
+    const featuresMarker = page
+      .getByText(/what we check/i)
+      .or(page.getByRole('heading', { name: /six categories/i }));
+    await expect(featuresMarker.first()).toBeVisible({ timeout: 5000 });
   });
 
   test('should display example preview section', async ({ page }) => {
