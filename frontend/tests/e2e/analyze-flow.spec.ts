@@ -19,7 +19,7 @@ test.describe('Analyze Flow', () => {
       }
     });
 
-    await page.route(`**/api/reports/${analyzeResponse.report_id}`, async (route) => {
+    await page.route(`**/api/reports/${analyzeResponse.report_id}**`, async (route) => {
       if (route.request().url().includes('localhost:8000') || route.request().url().includes(`/api/reports/${analyzeResponse.report_id}`)) {
         await route.fulfill({ json: doneReport, status: 200 });
       } else {
@@ -87,7 +87,7 @@ test.describe('Analyze Flow', () => {
       }
     });
 
-    await page.route(`**/api/reports/${analyzeResponse.report_id}`, async (route) => {
+    await page.route(`**/api/reports/${analyzeResponse.report_id}**`, async (route) => {
       if (route.request().url().includes('localhost:8000') || route.request().url().includes(`/api/reports/${analyzeResponse.report_id}`)) {
         await route.fulfill({ json: pendingReport, status: 200 });
       } else {

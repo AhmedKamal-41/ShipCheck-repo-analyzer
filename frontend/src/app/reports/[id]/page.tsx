@@ -12,6 +12,7 @@ import {
   getReport,
   isFindingsFailed,
   isFindingsSuccess,
+  isStructuredRecommendation,
 } from "@/lib/api";
 import type { HighlightItem } from "@/components/report/ScoreSummary";
 import type { ReportTabId } from "@/components/report/ReportTabs";
@@ -29,17 +30,25 @@ import { ReportError } from "@/components/report/ReportError";
 const POLL_INTERVAL_MS = 2000;
 const POLL_DEADLINE_MS = 30000;
 
-/** Backend section name -> report tab id */
-const SECTION_TO_TAB: Record<string, ReportTabId> = {
+/** Backend section name -> report tab id.
+ *
+ *  Section H of the v2 review flagged that any new backend section silently
+ *  fell through to "checks". The set of section names is stable enough to
+ *  enumerate, so we list them explicitly with an `as const satisfies`
+ *  constraint — adding a section without updating this map is now a TS error.
+ */
+const SECTION_TO_TAB = {
   Runability: "checks",
-  Documentation: "checks",
-  "Secrets Safety": "security",
   "Engineering Quality": "cicd",
+  "Secrets Safety": "security",
+  Documentation: "checks",
+  "Code Analysis": "checks",
+  Architecture: "checks",
   "Interview Pack": "interview-pack",
-};
+} as const satisfies Record<string, ReportTabId>;
 
 function mapSectionToTab(s: SectionFinding): ReportTabId {
-  return SECTION_TO_TAB[s.name] ?? "checks";
+  return (SECTION_TO_TAB as Record<string, ReportTabId>)[s.name] ?? "checks";
 }
 
 function computeHighlights(
@@ -196,6 +205,7 @@ export default function ReportPage() {
     () => successFindings?.interview_pack ?? [],
     [successFindings]
   );
+  const categoryScores = successFindings?.category_scores ?? null;
 
   const repoLabel =
     report?.repo_owner && report?.repo_name
@@ -239,9 +249,11 @@ export default function ReportPage() {
     const out: string[] = [];
     for (const sec of sections) {
       for (const c of sec.checks) {
-        if (c.status === "fail" && c.recommendation && out.length < 5) {
-          out.push(c.recommendation);
-        }
+        if (c.status !== "fail" || !c.recommendation || out.length >= 5) continue;
+        const action = isStructuredRecommendation(c.recommendation)
+          ? c.recommendation.how
+          : c.recommendation;
+        if (action) out.push(action);
       }
     }
     return out;
@@ -436,6 +448,7 @@ export default function ReportPage() {
                     highlights={highlights}
                     topIssues={topIssues}
                     nextActions={nextActions}
+                    categoryScores={categoryScores}
                   />
                 </div>
               </div>

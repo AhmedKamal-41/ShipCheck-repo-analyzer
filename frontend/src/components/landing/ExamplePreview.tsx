@@ -1,13 +1,51 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Check, X, Copy } from "lucide-react";
 import Link from "next/link";
-import { Container } from "@/components/layout/Container";
-import { CenteredSection } from "@/components/layout/CenteredSection";
-import { CenteredSectionHeader } from "@/components/ui/CenteredSectionHeader";
+import {
+  animate,
+  useInView,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+  motion,
+} from "framer-motion";
 import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
+import { LandingSection } from "./LandingSection";
+import { LandingSectionHeader } from "./LandingSectionHeader";
+
+function AnimatedScore({ target }: { target: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, amount: 0.5 });
+  const reduce = useReducedMotion();
+  const value = useMotionValue(0);
+  const rounded = useTransform(value, (v) => Math.round(v).toString());
+
+  useEffect(() => {
+    if (!inView) return;
+    if (reduce) {
+      value.set(target);
+      return;
+    }
+    const controls = animate(value, target, {
+      duration: 0.8,
+      ease: [0.16, 1, 0.3, 1],
+    });
+    return () => controls.stop();
+  }, [inView, reduce, target, value]);
+
+  return (
+    <span
+      ref={ref}
+      className="font-heading text-2xl font-bold text-[var(--text)] tabular-nums"
+      aria-label={`Readiness Score ${target}`}
+    >
+      <motion.span aria-hidden>{rounded}</motion.span>
+    </span>
+  );
+}
 
 const TABS = [
   "Overview",
@@ -132,13 +170,14 @@ export function ExamplePreview() {
   );
 
   return (
-    <CenteredSection id="example" className="scroll-mt-20">
-      <Container>
-        <CenteredSectionHeader
-          title="Example report"
-          subtitle="A preview of what you get."
-        />
-        <div className="mx-auto max-w-6xl pt-6 md:pt-8">
+    <LandingSection id="example" bg="bg">
+      <LandingSectionHeader
+        eyebrow="Sample report"
+        title="What's in the report?"
+        subtitle="Tabbed sections, evidence snippets, top issues, and a tailored interview pack, generated from one URL."
+        align="center"
+      />
+      <div className="mx-auto mt-12 max-w-[1100px]">
           {/* App frame: outer wrapper with browser strip */}
           <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] shadow-md">
             {/* Optional browser strip: 3 dots */}
@@ -159,7 +198,7 @@ export function ExamplePreview() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold text-[var(--text)]">82</span>
+                  <AnimatedScore target={82} />
                   <span className="text-sm text-[var(--muted)]">Readiness Score</span>
                 </div>
               </div>
@@ -364,7 +403,6 @@ export function ExamplePreview() {
             </div>
           </div>
         </div>
-      </Container>
-    </CenteredSection>
+    </LandingSection>
   );
 }

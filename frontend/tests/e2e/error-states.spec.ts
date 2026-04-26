@@ -8,7 +8,7 @@ test.describe('Error States', () => {
       fs.readFileSync(path.join(__dirname, '../fixtures/report/failed.json'), 'utf-8')
     );
 
-    await page.route(`http://localhost:8000/api/reports/${failedReport.id}`, async (route) => {
+    await page.route(`http://localhost:8000/api/reports/${failedReport.id}**`, async (route) => {
       await route.fulfill({ json: failedReport, status: 200 });
     });
 
@@ -25,7 +25,7 @@ test.describe('Error States', () => {
       fs.readFileSync(path.join(__dirname, '../fixtures/report/failed.json'), 'utf-8')
     );
 
-    await page.route(`http://localhost:8000/api/reports/${failedReport.id}`, async (route) => {
+    await page.route(`http://localhost:8000/api/reports/${failedReport.id}**`, async (route) => {
       await route.fulfill({ json: failedReport, status: 200 });
     });
 
@@ -47,7 +47,7 @@ test.describe('Error States', () => {
       }
     });
 
-    await page.route(`**/api/reports/${analyzeResponse.report_id}`, async (route) => {
+    await page.route(`**/api/reports/${analyzeResponse.report_id}**`, async (route) => {
       if (route.request().url().includes('localhost:8000') || route.request().url().includes(`/api/reports/${analyzeResponse.report_id}`)) {
         await route.fulfill({ status: 404, json: { detail: 'Report not found' } });
       } else {

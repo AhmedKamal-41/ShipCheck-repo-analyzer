@@ -1,6 +1,21 @@
 const apiBase =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
+export type RecommendationStructured = {
+  what: string;
+  where: string;
+  why: string;
+  how: string;
+};
+
+export function isStructuredRecommendation(
+  r: string | RecommendationStructured | null | undefined
+): r is RecommendationStructured {
+  return (
+    typeof r === "object" && r !== null && "what" in r && "how" in r
+  );
+}
+
 export type CheckFinding = {
   id: string;
   name: string;
@@ -11,8 +26,12 @@ export type CheckFinding = {
     start_line?: number;
     end_line?: number;
   };
-  recommendation: string;
+  recommendation: string | RecommendationStructured;
   points: number;
+  severity?: number;
+  confidence?: number;
+  scope_factor?: number;
+  category?: string;
 };
 
 export type SectionFinding = {
@@ -25,6 +44,7 @@ export type ReportFindingsSuccess = {
   overall_score: number;
   sections: SectionFinding[];
   interview_pack?: string[];
+  category_scores?: { [category: string]: number };
 };
 
 export type ReportFindingsFailed = { error: string };
@@ -80,7 +100,7 @@ export async function analyzeRepo(
 }
 
 export async function getReport(id: string): Promise<Report> {
-  const res = await fetch(`${apiBase}/api/reports/${id}`);
+  const res = await fetch(`${apiBase}/api/reports/${id}?v=2`);
   if (!res.ok) {
     if (res.status === 404) throw new Error("Report not found");
     const data = await res.json().catch(() => ({}));

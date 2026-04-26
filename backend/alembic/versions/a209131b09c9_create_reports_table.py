@@ -28,7 +28,11 @@ def upgrade() -> None:
         sa.Column("commit_sha", sa.Text(), nullable=True),
         sa.Column("status", sa.Text(), nullable=True),
         sa.Column("overall_score", sa.Integer(), nullable=True),
-        sa.Column("findings_json", postgresql.JSONB(), nullable=True),
+        sa.Column(
+            "findings_json",
+            postgresql.JSONB().with_variant(sa.JSON(), "sqlite"),
+            nullable=True,
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

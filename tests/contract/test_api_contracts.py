@@ -19,6 +19,7 @@ sys.path.insert(0, str(project_root))
 from .schemas import (
     AnalyzeResponseSchema,
     ReportResponseSchema,
+    ReportResponseSchemaV2,
     ReportListItemSchema,
     ReportListResponseSchema,
     ErrorResponseSchema,
@@ -158,6 +159,55 @@ def test_report_status_enum_validation(client):
     schema = ReportResponseSchema(**data)
     assert schema.status in ("pending", "done", "failed")
     
+    db.close()
+
+
+def test_report_response_v2_contract(client):
+    """GET /api/reports/{id}?v=2 must match the structured-recommendation schema."""
+    from app.models import Report
+    from app.core.database import SessionLocal
+
+    structured = {
+        "overall_score": 75,
+        "sections": [
+            {
+                "name": "Runability",
+                "score": 10,
+                "checks": [
+                    {
+                        "id": "runability_readme_install_run",
+                        "name": "README install/run",
+                        "status": "pass",
+                        "evidence": {"file": "README.md", "snippet": "..."},
+                        "recommendation": {
+                            "what": "README contains install/run instructions.",
+                            "where": "README.md",
+                            "why": "Reviewers can clone and run quickly.",
+                            "how": "Keep instructions current as commands change.",
+                        },
+                        "points": 10,
+                    },
+                ],
+            },
+        ],
+        "interview_pack": [],
+    }
+    db = SessionLocal()
+    report = Report(
+        repo_url="https://github.com/test/v2",
+        status="done",
+        overall_score=75,
+        findings_json={"overall_score": 75, "sections": []},
+        findings_v2=structured,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    resp = client.get(f"/api/reports/{report.id}?v=2")
+    assert resp.status_code == 200
+    schema = ReportResponseSchemaV2(**resp.json())
+    assert schema.findings_json is not None
     db.close()
 
 

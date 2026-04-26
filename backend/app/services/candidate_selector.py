@@ -60,7 +60,6 @@ def _path_matches_security(path: str) -> bool:
 def _bucket(path: str) -> int:
     """Return bucket 0=A, 1=B, 2=C, 3=D, 4=E, 5=F, -1=skip."""
     path_n = path.replace("\\", "/")
-    base = os.path.basename(path_n)
     if _path_matches_doc(path_n):
         return 0
     if path_n.startswith(".github/workflows/") and (path_n.endswith(".yml") or path_n.endswith(".yaml")):

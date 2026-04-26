@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import DATABASE_URL
 from app.core.database import get_db
@@ -18,9 +19,16 @@ from app.models import Base, Report
 # Use SQLite in-memory for tests if TESTING is set
 TESTING = os.getenv("TESTING", "0").lower() in ("1", "true", "yes")
 if TESTING and "sqlite" not in DATABASE_URL.lower():
-    # Override DATABASE_URL for tests to use SQLite
+    # Override DATABASE_URL for tests to use SQLite.
+    # StaticPool keeps a single shared connection so the in-memory DB is visible
+    # across FastAPI's sync-route threadpool workers (without it, each worker
+    # gets its own empty :memory: DB and queries fail with "no such table").
     test_db_url = "sqlite:///:memory:"
-    test_engine = create_engine(test_db_url, connect_args={"check_same_thread": False})
+    test_engine = create_engine(
+        test_db_url,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 else:
     from app.core.database import engine, SessionLocal as TestSessionLocal

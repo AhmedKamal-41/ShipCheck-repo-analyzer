@@ -10,7 +10,7 @@ test.describe('Report Page', () => {
     );
 
     // Mock API call
-    await page.route(`http://localhost:8000/api/reports/${doneReport.id}`, async (route) => {
+    await page.route(`http://localhost:8000/api/reports/${doneReport.id}**`, async (route) => {
       await route.fulfill({ json: doneReport, status: 200 });
     });
 

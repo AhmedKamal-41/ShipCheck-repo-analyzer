@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 interface ContainerProps {
   children: ReactNode;
   className?: string;
-  /** "narrow" for sidebar / constrained width */
-  variant?: "default" | "narrow";
+  /** "narrow" for sidebar / constrained width; "wide" (1200px) for landing sections */
+  variant?: "default" | "narrow" | "wide";
 }
 
 export function Container({
@@ -12,7 +12,12 @@ export function Container({
   className = "",
   variant = "default",
 }: ContainerProps) {
-  const maxWidth = variant === "narrow" ? "max-w-2xl" : "max-w-6xl";
+  const maxWidth =
+    variant === "narrow"
+      ? "max-w-2xl"
+      : variant === "wide"
+        ? "max-w-[1200px]"
+        : "max-w-6xl";
   return (
     <div
       className={`mx-auto w-full ${maxWidth} px-4 sm:px-6 lg:px-8 ${className}`}

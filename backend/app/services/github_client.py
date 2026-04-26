@@ -2,9 +2,9 @@ import base64
 import re
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
-from urllib.parse import urlparse
 
 from app.core.config import GITHUB_TOKEN
 

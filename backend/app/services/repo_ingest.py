@@ -4,13 +4,8 @@ from app.core.repo_limits import (
     MAX_FILES,
     MAX_TOTAL_BYTES,
     is_text_candidate,
-    should_skip_path,
 )
 from app.services.github_client import (
-    GitHubAPIError,
-    GitHubRateLimitError,
-    InvalidRepoUrlError,
-    RepoNotFoundError,
     get_blob_text,
     get_default_branch,
     get_tree_recursive,

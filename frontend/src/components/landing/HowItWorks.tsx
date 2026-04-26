@@ -1,63 +1,70 @@
-import { Container } from "@/components/layout/Container";
-import { CenteredSection } from "@/components/layout/CenteredSection";
-import { CenteredSectionHeader } from "@/components/ui/CenteredSectionHeader";
-import { Card } from "@/components/ui/Card";
+import { LandingSection } from "./LandingSection";
+import { LandingSectionHeader } from "./LandingSectionHeader";
 
-const STEPS = [
+const AST_SNIPPET = `radon.cc_visit(src)
+# → Function(name="handler",
+#            complexity=11)`;
+
+const SCORING_SNIPPET = `Runability        20%
+Testing & CI      20%
+Security & Deps   20%
+Maintainability   15%
+Architecture      15%
+Documentation     10%`;
+
+const READONLY_SNIPPET = `GET /repos/:owner/:repo
+GET /repos/:owner/:repo/git/trees
+GET /repos/:owner/:repo/contents/...`;
+
+const PILLARS = [
   {
-    title: "Paste repo URL",
+    title: "AST-based",
     description:
-      "Enter any public GitHub link. We only read metadata and key files.",
+      "Python via radon. JS/TS via tree-sitter. Import graphs via networkx. Every finding is reproducible from the same input.",
+    snippet: AST_SNIPPET,
   },
   {
-    title: "We scan key files",
+    title: "Categorical scoring",
     description:
-      "Runability, CI, dependency hygiene, and security—analyzed in seconds.",
+      "Six weighted categories totaling 100%. Severity, confidence, and scope-factor weight each finding before the average.",
+    snippet: SCORING_SNIPPET,
   },
   {
-    title: "Get your report",
+    title: "Read-only by design",
     description:
-      "Score, evidence snippets, and interview questions. Share or re-run anytime.",
+      "Only repo metadata and key files via the GitHub REST API. Code is never downloaded in full and never executed.",
+    snippet: READONLY_SNIPPET,
   },
 ] as const;
 
 export function HowItWorks() {
   return (
-    <CenteredSection id="how-it-works" className="scroll-mt-20">
-      <Container>
-        <CenteredSectionHeader
-          title="How it works"
-          subtitle="Three steps from URL to shareable report."
-        />
-        <div className="relative mx-auto max-w-4xl">
-          {/* Connecting line (desktop): behind cards, thinner/lighter */}
-          <div
-            className="absolute left-0 right-0 top-6 z-0 hidden border-t border-[var(--border)]/60 sm:block"
-            aria-hidden
-          />
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 sm:gap-8">
-            {STEPS.map((step, i) => (
-              <Card
-                key={step.title}
-                className="relative z-10 text-center transition-shadow hover:border-[#8c959f] hover:shadow-md"
-              >
-                <div
-                  className="relative z-10 mx-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-sm font-semibold text-[var(--muted)]"
-                  style={{ width: "2rem", height: "2rem" }}
-                >
-                  {i + 1}
-                </div>
-                <p className="mt-3 text-sm font-semibold text-[var(--text)]">
-                  {step.title}
-                </p>
-                <p className="mt-1 text-xs text-[var(--muted)] leading-relaxed">
-                  {step.description}
-                </p>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </Container>
-    </CenteredSection>
+    <LandingSection id="how-it-works" bg="bg">
+      <LandingSectionHeader
+        eyebrow="How it works"
+        title="Real static analysis. No LLMs. No code execution."
+        subtitle="Three layers between a GitHub URL and a score. Each is deterministic and auditable."
+        align="left"
+      />
+
+      <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-6">
+        {PILLARS.map((p) => (
+          <article
+            key={p.title}
+            className="flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 transition-all duration-200 ease-out hover:border-[#8c959f] hover:shadow-md"
+          >
+            <h3 className="text-base font-semibold text-[var(--text)]">
+              {p.title}
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+              {p.description}
+            </p>
+            <pre className="mt-4 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 font-mono text-xs leading-relaxed text-[var(--text)]">
+              {p.snippet}
+            </pre>
+          </article>
+        ))}
+      </div>
+    </LandingSection>
   );
 }

@@ -1,4 +1,4 @@
-# Release Checklist - HireLens
+# Release Checklist - ShipCheck
 
 Use this checklist before deploying to production.
 

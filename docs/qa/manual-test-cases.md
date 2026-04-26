@@ -1,4 +1,4 @@
-# Manual Test Cases - HireLens
+# Manual Test Cases - ShipCheck
 
 ## TC-001: Analyze Valid GitHub Repository
 

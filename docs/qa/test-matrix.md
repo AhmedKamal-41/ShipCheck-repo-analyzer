@@ -1,4 +1,4 @@
-# Test Matrix - HireLens
+# Test Matrix - ShipCheck
 
 ## Feature Coverage by Test Type
 

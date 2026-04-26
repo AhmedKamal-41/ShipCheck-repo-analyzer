@@ -1,14 +1,12 @@
-# hirelens
+# shipcheck
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
-
-HireLens analyzes public GitHub repositories and produces a scored report plus tailored interview questions. Analysis is **read-only**: it fetches repo metadata and source files via the GitHub API and statically analyzes them—**no repository code is executed**. Replace `OWNER/REPO` in the badge with your GitHub org/repo.
+ShipCheck analyzes public GitHub repositories and produces a scored report plus tailored interview questions. Analysis is **read-only**: it fetches repo metadata and source files via the GitHub API and statically analyzes them—**no repository code is executed**.
 
 ---
 
 ## Problem
 
-Hiring managers and recruiters need a quick signal of repo quality—runability, tests, CI, docs, secrets hygiene, and code structure. Manually inspecting dozens of candidate repos is tedious. HireLens automates a first-pass, rules-based analysis and outputs a report with an overall score, section breakdowns (including code analysis), and an interview pack.
+Hiring managers and recruiters need a quick signal of repo quality—runability, tests, CI, docs, secrets hygiene, and code structure. Manually inspecting dozens of candidate repos is tedious. ShipCheck automates a first-pass, rules-based analysis and outputs a report with an overall score, section breakdowns (including code analysis), and an interview pack.
 
 ---
 
@@ -86,6 +84,75 @@ Reports include:
 - **Secrets Safety** – .env.example, possible secret patterns in key files.
 - **Documentation** – README length and structure.
 - **Code Analysis** – Language breakdown, framework detection (FastAPI/Flask/Next/Express), endpoint discovery, architecture hints, quality signals (lint/format/typecheck/test), and security signals (secrets + dangerous patterns). Evidence includes file path and line range. Large repos are truncated by file/byte limits.
+- **Architecture** – Import-graph metrics: circular imports, god modules (high fan-in), and orphan modules (unused, non-entry-point files).
+
+---
+
+## Code analysis (v2)
+
+v2 adds rules-based static analysis on top of the original file-existence checks. Every finding is weighted, every recommendation is structured, and the overall score is composed from six weighted categories.
+
+### What's analyzed
+
+- **Cyclomatic complexity** (Python via `radon`, JS/TS via `tree-sitter`)
+- **Function length and nesting depth**
+- **Type safety** (TypeScript `: any` and `as any` counts)
+- **Code smells** (empty `except` blocks, `eval`, `console.log` in production code, magic numbers)
+- **Dependency hygiene** (unpinned, unused, missing dependencies)
+- **Architecture** (import graph, circular imports, god modules, orphan modules)
+
+### Scoring
+
+Every finding is weighted by:
+
+- **Severity** — LOW (0.3), MEDIUM (0.6), HIGH (1.0)
+- **Confidence** — analyzer's certainty (0.5–1.0)
+- **Scope** — how widespread the issue is (0.2–1.0, scaling with occurrence count)
+
+The overall score is a weighted average across six categories:
+
+| Category          | Weight |
+|-------------------|--------|
+| Runability        | 20%    |
+| Testing & CI      | 20%    |
+| Security & Deps   | 20%    |
+| Maintainability   | 15%    |
+| Architecture      | 15%    |
+| Documentation     | 10%    |
+
+### Recommendations
+
+Each finding answers four questions:
+
+- **WHAT** was found
+- **WHERE** in the code
+- **WHY** it matters (the cost in maintenance, security, or risk)
+- **HOW** to fix it
+
+The frontend renders this structured shape; the v=1 API endpoint returns a flat string for backward compatibility.
+
+### API versioning
+
+`GET /api/reports/{id}` accepts a `?v=` query parameter:
+
+- `?v=1` (default): each `recommendation` is a flat string. Existing clients are unaffected.
+- `?v=2`: each `recommendation` is a `{ what, where, why, how }` dict. The frontend uses this path.
+
+### What v2 does NOT do
+
+- Doesn't execute repo code (still 100% static analysis)
+- Doesn't use LLMs
+- Doesn't classify repo type or change weights based on a "role" — every repo is judged on the same rubric
+
+---
+
+## v2 changelog
+
+- **`radon` + `tree-sitter` integration** — real cyclomatic complexity metrics for Python and JS/TS.
+- **Severity-weighted categorical scoring** — six categories with explicit weights, each finding weighted by severity × confidence × scope.
+- **Structured recommendations** — every finding has a what / where / why / how breakdown rendered in the UI.
+- **Architecture analysis** — import graph via `networkx`: circular imports, god modules, orphan modules.
+- **`v=1` / `v=2` API versioning** — `findings_v2` column persists the structured shape; `?v=` query parameter selects the response shape; legacy clients unchanged.
 
 ---
 
@@ -107,7 +174,7 @@ Reports include:
 
 ## Testing
 
-HireLens includes comprehensive test coverage across unit, integration, E2E, contract, and performance tests.
+ShipCheck includes comprehensive test coverage across unit, integration, E2E, contract, and performance tests.
 
 ### Running Tests
 

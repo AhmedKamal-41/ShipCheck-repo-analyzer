@@ -23,7 +23,17 @@ interface ReportSidebarProps {
   highlights: HighlightItem[];
   topIssues: { name: string; status: "fail" | "warn" }[];
   nextActions: string[];
+  categoryScores?: { [category: string]: number } | null;
 }
+
+const CATEGORY_DISPLAY_ORDER = [
+  "Runability",
+  "Testing & CI",
+  "Security & Deps",
+  "Maintainability",
+  "Architecture",
+  "Documentation",
+];
 
 export function ReportSidebar({
   score,
@@ -32,6 +42,7 @@ export function ReportSidebar({
   highlights,
   topIssues,
   nextActions,
+  categoryScores,
 }: ReportSidebarProps) {
   const clamped = Math.min(100, Math.max(0, score));
   const r = 26;
@@ -94,6 +105,34 @@ export function ReportSidebar({
           </div>
         </div>
       </Card>
+
+      {categoryScores && Object.keys(categoryScores).length > 0 && (
+        <Card className="p-4">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wider text-[#57606a]">
+            Category breakdown
+          </p>
+          <ul className="space-y-2">
+            {CATEGORY_DISPLAY_ORDER.filter((c) => c in categoryScores).map((cat) => {
+              const v = Math.max(0, Math.min(100, categoryScores[cat] ?? 0));
+              return (
+                <li key={cat} className="text-xs text-[#1f2328]">
+                  <div className="flex items-center justify-between">
+                    <span>{cat}</span>
+                    <span className="font-mono text-[#57606a]">{v}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 w-full rounded-full bg-[#d0d7de]">
+                    <div
+                      className="h-1.5 rounded-full bg-[#0969da]"
+                      style={{ width: `${v}%` }}
+                      aria-hidden
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
 
       <Card className="p-4">
         <p className="mb-3 text-xs font-medium uppercase tracking-wider text-[#57606a]">

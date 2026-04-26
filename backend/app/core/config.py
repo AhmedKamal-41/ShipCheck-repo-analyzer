@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_DEFAULT_DATABASE_URL = "postgresql+psycopg2://hirelens:hirelens@localhost:5432/hirelens"
+_DEFAULT_DATABASE_URL = "postgresql+psycopg2://shipcheck:shipcheck@localhost:5432/shipcheck"
 DATABASE_URL = os.getenv("DATABASE_URL", _DEFAULT_DATABASE_URL)
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")

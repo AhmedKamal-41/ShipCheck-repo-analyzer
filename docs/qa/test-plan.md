@@ -1,8 +1,8 @@
-# Test Plan - HireLens
+# Test Plan - ShipCheck
 
 ## Scope
 
-This test plan covers comprehensive testing of the HireLens application, including:
+This test plan covers comprehensive testing of the ShipCheck application, including:
 
 - **Backend API**: FastAPI endpoints, business logic, database operations
 - **Frontend UI**: Next.js application, user interactions, error handling

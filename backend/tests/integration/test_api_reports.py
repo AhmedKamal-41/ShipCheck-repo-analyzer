@@ -116,7 +116,107 @@ def test_list_reports_limit_bounds(client: TestClient):
     # Test limit too high
     resp = client.get("/api/reports?limit=200")
     assert resp.status_code == 422  # Should fail validation (max 100)
-    
+
     # Test limit too low
     resp = client.get("/api/reports?limit=0")
     assert resp.status_code == 422  # Should fail validation (min 1)
+
+
+def test_get_report_v2_returns_structured_recommendations(client: TestClient, db):
+    """GET /api/reports/{id}?v=2 returns the structured shape; v=1 (default) returns flat strings."""
+    structured_findings = {
+        "overall_score": 80,
+        "sections": [
+            {
+                "name": "Runability",
+                "score": 10,
+                "checks": [
+                    {
+                        "id": "runability_readme_install_run",
+                        "name": "README install/run",
+                        "status": "pass",
+                        "evidence": {"file": "README.md", "snippet": "Install: ..."},
+                        "recommendation": {
+                            "what": "README contains install or run instructions.",
+                            "where": "README.md",
+                            "why": "Reviewers can clone and run quickly.",
+                            "how": "Keep instructions current.",
+                        },
+                        "points": 10,
+                    },
+                ],
+            },
+        ],
+        "interview_pack": [],
+        "category_scores": {},
+    }
+    legacy_findings = {
+        "overall_score": 80,
+        "sections": [
+            {
+                "name": "Runability",
+                "score": 10,
+                "checks": [
+                    {
+                        "id": "runability_readme_install_run",
+                        "name": "README install/run",
+                        "status": "pass",
+                        "evidence": {"file": "README.md", "snippet": "Install: ..."},
+                        "recommendation": "README contains install or run instructions. Keep instructions current.",
+                        "points": 10,
+                    },
+                ],
+            },
+        ],
+        "interview_pack": [],
+    }
+    report = Report(
+        repo_url="https://github.com/test/repo",
+        status="done",
+        overall_score=80,
+        findings_json=legacy_findings,
+        findings_v2=structured_findings,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    # v=1 (default): flat-string recommendation
+    resp_v1 = client.get(f"/api/reports/{report.id}")
+    assert resp_v1.status_code == 200
+    rec_v1 = resp_v1.json()["findings_json"]["sections"][0]["checks"][0]["recommendation"]
+    assert isinstance(rec_v1, str)
+    assert "Keep instructions current" in rec_v1
+
+    # v=2: structured recommendation dict
+    resp_v2 = client.get(f"/api/reports/{report.id}?v=2")
+    assert resp_v2.status_code == 200
+    rec_v2 = resp_v2.json()["findings_json"]["sections"][0]["checks"][0]["recommendation"]
+    assert isinstance(rec_v2, dict)
+    assert set(rec_v2.keys()) == {"what", "where", "why", "how"}
+    for key in ("what", "where", "why", "how"):
+        assert rec_v2[key], f"{key} must be non-empty"
+
+
+def test_get_report_v2_falls_back_to_legacy_when_v2_missing(client: TestClient, db):
+    """A row written before this prompt has no findings_v2; v=2 should fall back to findings_json."""
+    legacy_only = {
+        "overall_score": 50,
+        "sections": [],
+        "interview_pack": [],
+    }
+    report = Report(
+        repo_url="https://github.com/test/legacy",
+        status="done",
+        overall_score=50,
+        findings_json=legacy_only,
+        findings_v2=None,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    resp = client.get(f"/api/reports/{report.id}?v=2")
+    assert resp.status_code == 200
+    # Falls back to findings_json since findings_v2 is None
+    assert resp.json()["findings_json"] == legacy_only

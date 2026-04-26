@@ -22,7 +22,7 @@ test.describe('Visual Regression', () => {
       fs.readFileSync(path.join(__dirname, '../fixtures/report/done.json'), 'utf-8')
     );
 
-    await page.route(`http://localhost:8000/api/reports/${doneReport.id}`, async (route) => {
+    await page.route(`http://localhost:8000/api/reports/${doneReport.id}**`, async (route) => {
       await route.fulfill({ json: doneReport, status: 200 });
     });
 

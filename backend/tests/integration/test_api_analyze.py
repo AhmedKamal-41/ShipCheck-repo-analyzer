@@ -39,7 +39,7 @@ def test_analyze_creates_report_with_pending_status(client: TestClient, db):
 
 
 def test_analyze_completes_analysis(client: TestClient, db):
-    """Test that analyze completes and stores findings."""
+    """Test that analyze completes and stores findings, and that v2 is also populated."""
     with patch("app.api.reports.fetch_repo") as mock_fetch:
         mock_fetch.return_value = {
             "owner": "test",
@@ -51,20 +51,33 @@ def test_analyze_completes_analysis(client: TestClient, db):
             "workflows": [],
             "test_folders_detected": [],
         }
-        
+
         resp = client.post("/api/analyze", json={"repo_url": "https://github.com/test/repo"})
         assert resp.status_code == 200
         report_id = uuid.UUID(resp.json()["report_id"])
-        
-        # Get report
+
+        # Default GET (v=1) returns flat-string recommendations.
         get_resp = client.get(f"/api/reports/{report_id}")
         assert get_resp.status_code == 200
         report = get_resp.json()
-        
         assert report["status"] == "done"
         assert report["overall_score"] is not None
         assert report["findings_json"] is not None
         assert "sections" in report["findings_json"]
+        first_check = report["findings_json"]["sections"][0]["checks"][0]
+        assert isinstance(first_check["recommendation"], str)
+        assert len(first_check["recommendation"]) > 0
+
+        # The same row also has findings_v2 populated with structured recommendations.
+        report_row = db.query(Report).filter(Report.id == report_id).first()
+        assert report_row.findings_v2 is not None
+        assert "sections" in report_row.findings_v2
+        v2_check = report_row.findings_v2["sections"][0]["checks"][0]
+        rec = v2_check["recommendation"]
+        assert isinstance(rec, dict)
+        assert set(rec.keys()) == {"what", "where", "why", "how"}
+        for key in ("what", "where", "why", "how"):
+            assert isinstance(rec[key], str) and rec[key], f"{key} must be non-empty"
 
 
 def test_analyze_invalid_url(client: TestClient):

@@ -2,11 +2,27 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { CheckFinding } from "@/lib/api";
+import {
+  type CheckFinding,
+  type RecommendationStructured,
+  isStructuredRecommendation,
+} from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 
 interface CheckRowProps {
   check: CheckFinding;
+}
+
+const REC_LABELS: Array<{ key: keyof RecommendationStructured; label: string }> = [
+  { key: "what", label: "What" },
+  { key: "where", label: "Where" },
+  { key: "why", label: "Why" },
+  { key: "how", label: "How" },
+];
+
+function recTeaserText(rec: CheckFinding["recommendation"]): string {
+  if (!rec) return "";
+  return isStructuredRecommendation(rec) ? rec.what : rec;
 }
 
 export function CheckRow({ check }: CheckRowProps) {
@@ -15,6 +31,7 @@ export function CheckRow({ check }: CheckRowProps) {
     file: "—",
     snippet: "",
   };
+  const teaser = recTeaserText(check.recommendation);
   const hasDetails =
     (file && file !== "—") || !!snippet || !!check.recommendation;
   const fileLabel =
@@ -23,6 +40,9 @@ export function CheckRow({ check }: CheckRowProps) {
         ? `${file} (L${start_line}–${end_line})`
         : file
       : null;
+  const structured = isStructuredRecommendation(check.recommendation)
+    ? check.recommendation
+    : null;
 
   return (
     <div className="rounded-lg border border-[#d0d7de] bg-[#f6f8fa] p-3">
@@ -47,8 +67,8 @@ export function CheckRow({ check }: CheckRowProps) {
           </button>
         )}
       </div>
-      {check.recommendation && !open && (
-        <p className="mt-3 text-sm text-[#57606a] leading-relaxed">{check.recommendation}</p>
+      {teaser && !open && (
+        <p className="mt-3 text-sm text-[#57606a] leading-relaxed line-clamp-2">{teaser}</p>
       )}
       {open && hasDetails && (
         <div className="mt-4 space-y-4 border-t border-[#d0d7de] pt-4">
@@ -75,7 +95,22 @@ export function CheckRow({ check }: CheckRowProps) {
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[#57606a]">
                 Recommendation
               </p>
-              <p className="text-sm text-[#1f2328] leading-relaxed">{check.recommendation}</p>
+              {structured ? (
+                <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm leading-relaxed">
+                  {REC_LABELS.map(({ key, label }) => (
+                    <div key={key} className="contents">
+                      <dt className="text-xs font-medium uppercase tracking-wider text-[#57606a] pt-0.5">
+                        {label}
+                      </dt>
+                      <dd className="text-[#1f2328]">{structured[key]}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-[#1f2328] leading-relaxed">
+                  {check.recommendation as string}
+                </p>
+              )}
             </div>
           )}
         </div>

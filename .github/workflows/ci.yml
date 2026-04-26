@@ -13,9 +13,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: hirelens
-          POSTGRES_PASSWORD: hirelens
-          POSTGRES_DB: hirelens
+          POSTGRES_USER: shipcheck
+          POSTGRES_PASSWORD: shipcheck
+          POSTGRES_DB: shipcheck
         ports:
           - 5432:5432
         options: >-
@@ -25,7 +25,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql+psycopg2://hirelens:hirelens@localhost:5432/hirelens
+      DATABASE_URL: postgresql+psycopg2://shipcheck:shipcheck@localhost:5432/shipcheck
 
     steps:
       - uses: actions/checkout@v4
@@ -145,9 +145,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: hirelens
-          POSTGRES_PASSWORD: hirelens
-          POSTGRES_DB: hirelens
+          POSTGRES_USER: shipcheck
+          POSTGRES_PASSWORD: shipcheck
+          POSTGRES_DB: shipcheck
         ports:
           - 5432:5432
         options: >-
@@ -157,7 +157,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql+psycopg2://hirelens:hirelens@localhost:5432/hirelens
+      DATABASE_URL: postgresql+psycopg2://shipcheck:shipcheck@localhost:5432/shipcheck
 
     steps:
       - uses: actions/checkout@v4

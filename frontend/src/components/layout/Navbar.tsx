@@ -18,24 +18,21 @@ export function Navbar({ showTryCta = true }: NavbarProps) {
       <Container className="flex h-14 items-center justify-between">
         <Link
           href="/"
-          className="font-heading flex items-center gap-2 text-base font-semibold tracking-tight text-[var(--text)]"
+          className="font-heading flex items-center text-base font-semibold tracking-tight text-[var(--text)]"
         >
-          HireLens
-          <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--muted)]">
-            Beta
-          </span>
+          ShipCheck
         </Link>
-        <nav className="flex items-center gap-4">
+        <nav className="flex items-center gap-5">
           <a
             href="#"
-            className="rounded text-sm text-[var(--muted)] transition-colors hover:text-[var(--link)] hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2"
+            className="border-b border-transparent pb-0.5 text-sm text-[var(--muted)] transition-colors duration-200 ease-out hover:border-current hover:text-[var(--text)] focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2"
           >
             Docs
           </a>
           <button
             type="button"
             onClick={() => scrollTo("example")}
-            className="rounded text-sm text-[var(--muted)] transition-colors hover:text-[var(--link)] hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2"
+            className="border-b border-transparent pb-0.5 text-sm text-[var(--muted)] transition-colors duration-200 ease-out hover:border-current hover:text-[var(--text)] focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2"
           >
             Example
           </button>
@@ -43,7 +40,7 @@ export function Navbar({ showTryCta = true }: NavbarProps) {
             href="https://github.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded text-sm text-[var(--muted)] transition-colors hover:text-[var(--link)] hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2"
+            className="border-b border-transparent pb-0.5 text-sm text-[var(--muted)] transition-colors duration-200 ease-out hover:border-current hover:text-[var(--text)] focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[var(--link)]/30 focus-visible:ring-offset-2"
           >
             GitHub
           </a>

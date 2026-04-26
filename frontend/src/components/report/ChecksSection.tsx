@@ -1,6 +1,10 @@
 "use client";
 
-import type { SectionFinding, CheckFinding } from "@/lib/api";
+import {
+  type SectionFinding,
+  type CheckFinding,
+  isStructuredRecommendation,
+} from "@/lib/api";
 import { CheckRow } from "./CheckRow";
 import { Card } from "@/components/ui/Card";
 
@@ -10,6 +14,14 @@ interface ChecksSectionProps {
   search: string;
   isInterviewPack?: boolean;
   questions?: string[];
+}
+
+function recSearchText(rec: CheckFinding["recommendation"]): string {
+  if (!rec) return "";
+  if (isStructuredRecommendation(rec)) {
+    return `${rec.what} ${rec.where} ${rec.why} ${rec.how}`;
+  }
+  return rec;
 }
 
 function filterChecks(
@@ -23,7 +35,7 @@ function filterChecks(
     list = list.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
-        (c.recommendation ?? "").toLowerCase().includes(q) ||
+        recSearchText(c.recommendation).toLowerCase().includes(q) ||
         (c.evidence?.snippet ?? "").toLowerCase().includes(q) ||
         (c.evidence?.file ?? "").toLowerCase().includes(q)
     );

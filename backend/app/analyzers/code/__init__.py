@@ -2,7 +2,13 @@
 
 from typing import Any
 
-from app.analyzers.code import js_routes, language_detect, python_fastapi, quality, security
+from app.analyzers.code import (
+    js_routes,
+    language_detect,
+    python_fastapi,
+    quality,
+    security,
+)
 
 
 def run_code_analysis(files: dict[str, str], stats: dict | None = None) -> dict[str, Any]:

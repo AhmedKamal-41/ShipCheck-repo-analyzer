@@ -10,6 +10,76 @@ POINTS_PASS = 10
 POINTS_WARN = 5
 POINTS_FAIL = 0
 
+SEV_LOW = 0.3
+SEV_MEDIUM = 0.6
+SEV_HIGH = 1.0
+
+CATEGORY_WEIGHTS: dict[str, float] = {
+    "Runability":      0.20,
+    "Testing & CI":    0.20,
+    "Security & Deps": 0.20,
+    "Maintainability": 0.15,
+    "Architecture":    0.15,
+    "Documentation":   0.10,
+}
+
+CHECK_CATEGORY: dict[str, str] = {
+    "runability_readme_install_run": "Runability",
+    "runability_docker":             "Runability",
+    "engineering_tests":             "Testing & CI",
+    "engineering_ci":                "Testing & CI",
+    "engineering_lint_format":       "Maintainability",
+    "engineering_pinning":           "Security & Deps",
+    "secrets_env_example":           "Security & Deps",
+    "secrets_possible_secrets":      "Security & Deps",
+    "documentation_readme_length":   "Documentation",
+    "documentation_readme_sections": "Documentation",
+    "code_summary":                  "Maintainability",
+    "code_frameworks":               "Maintainability",
+    "code_endpoints":                "Maintainability",
+    "code_quality":                  "Maintainability",
+    "code_security":                 "Security & Deps",
+    "complexity_summary":            "Maintainability",
+    "complexity_any_types":          "Maintainability",
+    "smells_summary":                "Maintainability",
+    "smells_dangerous":              "Maintainability",
+    "dependencies_unused":           "Security & Deps",
+    "dependencies_missing":          "Security & Deps",
+    "architecture_circular":         "Architecture",
+    "architecture_god_modules":      "Architecture",
+    "architecture_orphans":          "Architecture",
+    # code_finding_{i} entries route via CheckResult.category set by the emitter.
+}
+
+# Sentinel: when category equals this, fall back to CHECK_CATEGORY[id] lookup.
+_CATEGORY_UNSET = "__unset__"
+
+
+class AnalyzerError(Exception):
+    """Raised when the analyzer cannot resolve a check to a known category."""
+
+
+@dataclass
+class Recommendation:
+    """Structured recommendation: what was found, where, why it matters, how to fix.
+
+    All four fields must be non-empty strings. to_legacy_string() collapses
+    the structured form to a flat sentence for the legacy findings_json shape.
+    """
+    what: str
+    where: str
+    why: str
+    how: str
+
+    def to_legacy_string(self) -> str:
+        """Render to a flat string for findings_json backward compat: '{what} {how}'."""
+        return f"{self.what} {self.how}"
+
+
+def _rec(what: str, where: str, why: str, how: str) -> Recommendation:
+    """Compact constructor for inline recommendations."""
+    return Recommendation(what=what, where=where, why=why, how=how)
+
 
 @dataclass
 class CheckResult:
@@ -17,8 +87,12 @@ class CheckResult:
     name: str
     status: Literal["pass", "warn", "fail"]
     evidence: dict[str, Any]  # file, snippet; optional start_line, end_line for code analysis
-    recommendation: str
+    recommendation: Recommendation
     points: int = 0
+    severity: float = 1.0
+    confidence: float = 1.0
+    scope_factor: float = 1.0
+    category: str = _CATEGORY_UNSET
 
 
 @dataclass
@@ -33,6 +107,67 @@ class ReportResult:
     overall_score: int
     sections: list[SectionResult] = field(default_factory=list)
     interview_pack: list[str] = field(default_factory=list)
+    category_scores: dict[str, int] = field(default_factory=dict)
+
+
+def compute_scope_factor(occurrences: int) -> float:
+    """Linear interp from 1 occurrence (0.2) to 10+ occurrences (1.0).
+
+    Below 1 returns 0.2 (no negative scope). At/above 10 returns 1.0.
+    """
+    if occurrences <= 1:
+        return 0.2
+    if occurrences >= 10:
+        return 1.0
+    # Linear: x=1 -> 0.2, x=10 -> 1.0; slope = 0.8/9
+    return round(0.2 + (occurrences - 1) * (0.8 / 9), 4)
+
+
+def _category_for(check: CheckResult) -> str:
+    if check.category and check.category != _CATEGORY_UNSET:
+        return check.category
+    cat = CHECK_CATEGORY.get(check.id)
+    if cat is None:
+        raise AnalyzerError(
+            f"Check id {check.id!r} has no category: not in CHECK_CATEGORY and no explicit category set"
+        )
+    return cat
+
+
+def compute_categorical_score(
+    checks: list[CheckResult],
+) -> tuple[int, dict[str, int]]:
+    """Compute weighted overall score and per-category scores.
+
+    Returns (overall_score, category_scores). Empty categories score 100
+    (neutral, no penalty). Overall is clamped to [0, 100].
+    """
+    category_scores: dict[str, int] = {}
+    by_cat: dict[str, list[CheckResult]] = {c: [] for c in CATEGORY_WEIGHTS}
+    for check in checks:
+        cat = _category_for(check)
+        if cat not in by_cat:
+            # Category named on a check but not in CATEGORY_WEIGHTS — accept and warn via dict.
+            by_cat[cat] = []
+        by_cat[cat].append(check)
+
+    for cat in CATEGORY_WEIGHTS:
+        relevant = by_cat.get(cat) or []
+        if not relevant:
+            category_scores[cat] = 100
+            continue
+        weighted_earned = sum(
+            c.points * c.severity * c.confidence * c.scope_factor for c in relevant
+        )
+        weighted_max = sum(
+            POINTS_PASS * c.severity * c.confidence * c.scope_factor for c in relevant
+        )
+        category_scores[cat] = (
+            round(100 * weighted_earned / weighted_max) if weighted_max > 0 else 100
+        )
+
+    overall = sum(category_scores[c] * CATEGORY_WEIGHTS[c] for c in CATEGORY_WEIGHTS)
+    return (max(0, min(100, round(overall))), category_scores)
 
 
 def _truncate(s: str, n: int = EVIDENCE_SNIPPET_MAX) -> str:
@@ -136,7 +271,12 @@ def _runability_checks(
             name="README install/run",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add README with install/run instructions.",
+            recommendation=_rec(
+                what="No README file was found anywhere in the repository.",
+                where="Repository root",
+                why="Without a README, new contributors and reviewers cannot tell what the project does or how to run it. Onboarding stalls and the repo gets a low first impression.",
+                how="Add a README.md at the repository root with a one-paragraph description, install instructions, and a single command to run the app locally.",
+            ),
             points=POINTS_FAIL,
         ))
     elif has_run_hint:
@@ -145,7 +285,12 @@ def _runability_checks(
             name="README install/run",
             status="pass",
             evidence={"file": ev_file, "snippet": _truncate(readme_snippet or "")},
-            recommendation="README has install/run instructions.",
+            recommendation=_rec(
+                what="README contains install or run instructions.",
+                where=ev_file,
+                why="A reader can clone this repo and get it running without asking the team for help — the cheapest possible onboarding cost.",
+                how="Keep the install and run commands current as dependencies and entrypoints change so the README stays a source of truth.",
+            ),
             points=POINTS_PASS,
         ))
     else:
@@ -154,7 +299,12 @@ def _runability_checks(
             name="README install/run",
             status="warn",
             evidence={"file": ev_file, "snippet": _truncate(readme_snippet or "")},
-            recommendation="Add install/run/docker/uvicorn/npm run instructions to README.",
+            recommendation=_rec(
+                what="README exists but lacks install or run instructions.",
+                where=ev_file,
+                why="A reader has to dig through code to figure out how to start the app. That's a multi-minute friction tax on every new contributor and every reviewer.",
+                how="Add a short 'Getting started' section with the exact install command (e.g. `pip install -r requirements.txt`, `npm install`) and the run command (e.g. `uvicorn app.main:app`, `npm run dev`).",
+            ),
             points=POINTS_WARN,
         ))
 
@@ -183,7 +333,12 @@ def _runability_checks(
             name="Docker",
             status="pass",
             evidence={"file": ev_file, "snippet": ev_snip},
-            recommendation="Docker support present.",
+            recommendation=_rec(
+                what="Docker configuration is present in the repository.",
+                where=ev_file,
+                why="A reproducible container removes the 'works on my machine' class of bugs and gives reviewers a one-command path to a running app.",
+                how="Periodically rebuild from a clean cache to confirm the Dockerfile still builds, and keep the base image pinned to a specific version rather than `latest`.",
+            ),
             points=POINTS_PASS,
         ))
     else:
@@ -192,7 +347,12 @@ def _runability_checks(
             name="Docker",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add Dockerfile or docker-compose.yml.",
+            recommendation=_rec(
+                what="No Dockerfile or docker-compose.yml found in the repository.",
+                where="Repository root",
+                why="Reviewers and CI have to set up a Python or Node environment by hand to run this code. That's a per-contributor cost and a source of environment drift.",
+                how="Add a Dockerfile that installs dependencies and exposes the app's run command. For multi-service apps, add a docker-compose.yml that wires up dependencies (db, redis, etc.).",
+            ),
             points=POINTS_FAIL,
         ))
 
@@ -226,7 +386,12 @@ def _engineering_checks(
             name="Tests",
             status="pass",
             evidence={"file": ev_test, "snippet": f"Found: {ev_test}"},
-            recommendation="Tests detected.",
+            recommendation=_rec(
+                what="A test directory is present in the repository.",
+                where=ev_test,
+                why="Tests are the cheapest way to catch regressions before production. Their presence means the team treats correctness as part of 'done'.",
+                how="Run the test suite in CI on every PR, and watch coverage trends — adding code without adding tests is the most common way coverage erodes.",
+            ),
             points=POINTS_PASS,
         ))
     elif test_in_workflows:
@@ -235,7 +400,12 @@ def _engineering_checks(
             name="Tests",
             status="warn",
             evidence={"file": wf_ev_path, "snippet": wf_ev_snip},
-            recommendation="Tests mentioned in CI but no test folder; add tests/ or __tests__/.",
+            recommendation=_rec(
+                what="CI references a test command but no test directory was found.",
+                where=wf_ev_path,
+                why="The CI step is either failing silently or running on an empty suite. Either way, the team is paying for CI minutes without getting test coverage in return.",
+                how="Add a `tests/` (Python) or `__tests__/` (JS) directory with at least smoke tests for the critical paths — a single happy-path test per route is a cheap starting point.",
+            ),
             points=POINTS_WARN,
         ))
     else:
@@ -244,7 +414,12 @@ def _engineering_checks(
             name="Tests",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add tests and/or test folder (tests/, __tests__/).",
+            recommendation=_rec(
+                what="No tests or test directory found anywhere in the repository.",
+                where="Repository root",
+                why="Every change ships untested. Regressions land in production unnoticed and refactors become high-risk because there's no safety net.",
+                how="Add `tests/` (Python, with pytest) or `__tests__/` (JS, with jest/vitest), and start with one happy-path test per public entrypoint — that already catches most import-time and wiring bugs.",
+            ),
             points=POINTS_FAIL,
         ))
 
@@ -261,8 +436,14 @@ def _engineering_checks(
             name="CI",
             status="pass",
             evidence={"file": ci_ev_path, "snippet": _truncate(ci_ev_snip or f"Found: {ci_ev_path}")},
-            recommendation="CI present.",
+            recommendation=_rec(
+                what="A CI workflow is configured for this repository.",
+                where=ci_ev_path,
+                why="Automated checks on every PR catch broken builds before merge, so reviewers can focus on the change itself rather than environment setup.",
+                how="Make sure the workflow runs tests and lint on PRs against the default branch, and add a status check requirement so failing CI blocks merge.",
+            ),
             points=POINTS_PASS,
+            severity=SEV_MEDIUM,
         ))
     else:
         results.append(CheckResult(
@@ -270,8 +451,14 @@ def _engineering_checks(
             name="CI",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add .github/workflows.",
+            recommendation=_rec(
+                what="No CI workflow files found under .github/workflows/.",
+                where=".github/workflows/",
+                why="Every PR depends on humans running tests locally. Broken main branches are a matter of when, not if, and reviewers spend cycles reproducing setup issues.",
+                how="Create `.github/workflows/ci.yml` that installs dependencies and runs your test command on push and pull_request events targeting the default branch.",
+            ),
             points=POINTS_FAIL,
+            severity=SEV_MEDIUM,
         ))
 
     lint_patterns = (".prettierrc", ".eslintrc", "eslint.config", "ruff.toml", "pyproject.toml", "mypy.ini", "tox.ini")
@@ -307,7 +494,12 @@ def _engineering_checks(
             name="Lint/format",
             status="pass",
             evidence={"file": ev_lint, "snippet": ev_lint_snip},
-            recommendation="Lint/format present.",
+            recommendation=_rec(
+                what="Lint or format configuration is present.",
+                where=ev_lint,
+                why="A consistent style means PR reviews focus on logic rather than whitespace, and machine-enforced rules catch common bugs (unused imports, undefined names) before they ship.",
+                how="Run the linter in CI as a required check, and consider a pre-commit hook so issues are caught locally before push.",
+            ),
             points=POINTS_PASS,
         ))
     elif scripts_snip or py_snip or req_snip:
@@ -316,7 +508,12 @@ def _engineering_checks(
             name="Lint/format",
             status="warn",
             evidence={"file": ev_lint, "snippet": ev_lint_snip},
-            recommendation="Add lint/format scripts or config (eslint, prettier, ruff, black).",
+            recommendation=_rec(
+                what="A package manifest exists but no lint or format tool is configured.",
+                where=ev_lint,
+                why="Style drift is a slow tax on every reviewer and makes diffs noisy. Without a linter, simple bugs (unused imports, dead code, undefined names) ship to production.",
+                how="Add `ruff` and `black` for Python (configure in `pyproject.toml`) or `eslint` and `prettier` for JS/TS (add `lint`/`format` scripts to `package.json`), and run them in CI.",
+            ),
             points=POINTS_WARN,
         ))
     else:
@@ -325,7 +522,12 @@ def _engineering_checks(
             name="Lint/format",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add lint/format scripts or config.",
+            recommendation=_rec(
+                what="No lint or format configuration found anywhere in the repository.",
+                where="Repository root",
+                why="The codebase has no automated style or correctness gate. Whatever pattern emerges is whatever the most recent contributor felt like — review fatigue and inconsistent code follow.",
+                how="Pick one tool per language (`ruff` for Python, `eslint` for JS/TS) and add a config file plus a CI job that fails on lint errors.",
+            ),
             points=POINTS_FAIL,
         ))
 
@@ -352,7 +554,12 @@ def _engineering_checks(
             name="Dependency pinning",
             status="pass",
             evidence={"file": ev_pin, "snippet": ev_pin_snip},
-            recommendation="Dependencies pinned.",
+            recommendation=_rec(
+                what="Dependencies are pinned via a lockfile or exact-version specifiers.",
+                where=ev_pin,
+                why="Builds are reproducible and supply-chain compromises in transitive deps don't silently update overnight. Yesterday's green build still builds today.",
+                how="Keep the lockfile committed and refresh it intentionally (e.g. `npm ci` in CI, scheduled Renovate or Dependabot PRs for updates rather than ad-hoc bumps).",
+            ),
             points=POINTS_PASS,
         ))
     elif has_reqs:
@@ -362,7 +569,12 @@ def _engineering_checks(
             name="Dependency pinning",
             status="warn",
             evidence={"file": reqs_path or "requirements.txt", "snippet": ev_pin_snip},
-            recommendation="Use lockfiles or pin versions (==) in requirements.txt.",
+            recommendation=_rec(
+                what="A requirements file exists but versions are not pinned with `==`.",
+                where=reqs_path or "requirements.txt",
+                why="A new transitive release tonight can break the build tomorrow with no code change. Reproducing yesterday's bug from yesterday's commit is no longer reliable.",
+                how="Replace `>=` and unspecified versions with exact `==` pins, or add a lockfile (`pip-compile` -> `requirements.lock` for pip, or migrate to Poetry/uv with their lockfiles).",
+            ),
             points=POINTS_WARN,
         ))
     else:
@@ -371,7 +583,12 @@ def _engineering_checks(
             name="Dependency pinning",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Use lockfiles or pin versions.",
+            recommendation=_rec(
+                what="No lockfile or pinned-version manifest found.",
+                where="Repository root",
+                why="Every install pulls whatever is current on the registry. Builds are non-reproducible, and a malicious typo-squatted package can land without anyone noticing.",
+                how="Commit a lockfile from your package manager (`package-lock.json`, `poetry.lock`, `Pipfile.lock`, `uv.lock`), and have CI use the lockfile-respecting install command (`npm ci`, `poetry install --no-root --sync`).",
+            ),
             points=POINTS_FAIL,
         ))
 
@@ -394,8 +611,14 @@ def _secrets_checks(
             name=".env.example",
             status="pass",
             evidence={"file": env_ex_path, "snippet": _truncate(env_ex_content) or f"Found: {env_ex_path}"},
-            recommendation="Has .env.example.",
+            recommendation=_rec(
+                what="A `.env.example` template is present.",
+                where=env_ex_path,
+                why="New contributors know exactly which environment variables the app needs without having to grep the codebase or message the team.",
+                how="Keep `.env.example` in sync as new env vars are introduced — a missing key here is a guaranteed onboarding failure.",
+            ),
             points=POINTS_PASS,
+            severity=SEV_LOW,
         ))
     else:
         results.append(CheckResult(
@@ -403,8 +626,14 @@ def _secrets_checks(
             name=".env.example",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add .env.example.",
+            recommendation=_rec(
+                what="No `.env.example` template found.",
+                where="Repository root",
+                why="There's no documented list of environment variables this app expects, so first-time setup involves trial-and-error against runtime errors.",
+                how="Add a `.env.example` listing every required env var (with placeholder values, never real secrets), and reference it from the README's setup section.",
+            ),
             points=POINTS_FAIL,
+            severity=SEV_LOW,
         ))
 
     patterns = [
@@ -437,7 +666,12 @@ def _secrets_checks(
             name="Possible secrets",
             status="pass",
             evidence={"file": "—", "snippet": ""},
-            recommendation="No obvious secret patterns in sampled files.",
+            recommendation=_rec(
+                what="No high-confidence secret patterns matched in sampled files.",
+                where="Sampled repository contents",
+                why="The first line of credential hygiene is holding — committed code is unlikely to leak tokens or keys to anyone who clones the repo.",
+                how="Add a pre-commit hook (`detect-secrets`, `gitleaks`) so this stays true even as the codebase grows, and rotate any secret that ever lands in a commit (even a reverted one).",
+            ),
             points=POINTS_PASS,
         ))
     else:
@@ -447,7 +681,12 @@ def _secrets_checks(
             name="Possible secrets",
             status="warn",
             evidence={"file": f, "snippet": "possible secret – review recommended"},
-            recommendation="Remove secrets from repo; use .env and .env.example.",
+            recommendation=_rec(
+                what="A pattern matching a possible secret (token, key, or password) was detected.",
+                where=f,
+                why="If this is a real credential, anyone with read access to the repo can use it. Even a since-removed secret in git history is compromised — git remembers everything.",
+                how="Treat any matched secret as compromised: rotate it now, then remove from the file (move the value to environment variables and `.env`), and use `git filter-repo` or BFG to scrub history if it was ever committed.",
+            ),
             points=POINTS_WARN,
         ))
 
@@ -488,7 +727,12 @@ def _documentation_checks(
             name="README length",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add a README.",
+            recommendation=_rec(
+                what="No README or `docs/` directory found.",
+                where="Repository root",
+                why="The project has no written context. New contributors and stakeholders have to read the source to learn what the code does, which doesn't scale past one or two people.",
+                how="Add a README.md with at least: a one-paragraph project description, a `## Usage` or `## Setup` section, and a working run command.",
+            ),
             points=POINTS_FAIL,
         ))
     elif n >= 500:
@@ -497,7 +741,12 @@ def _documentation_checks(
             name="README length",
             status="pass",
             evidence={"file": doc_ev_file, "snippet": f"length={n}"},
-            recommendation="README sufficient.",
+            recommendation=_rec(
+                what=f"README is substantive ({n} characters).",
+                where=doc_ev_file,
+                why="There's enough context here for a new contributor to orient themselves without having to ping the team. That's the whole job of a README.",
+                how="Review the README quarterly — outdated install steps or wrong run commands hurt more than a short README, because the reader trusts what they see.",
+            ),
             points=POINTS_PASS,
         ))
     else:
@@ -506,7 +755,12 @@ def _documentation_checks(
             name="README length",
             status="warn",
             evidence={"file": doc_ev_file, "snippet": f"length={n}"},
-            recommendation="Expand README (e.g. ≥500 chars).",
+            recommendation=_rec(
+                what=f"README is short ({n} characters; under the 500-character threshold).",
+                where=doc_ev_file,
+                why="A terse README signals 'this isn't where you find answers.' Readers learn to skip it, and the next person to update it doesn't bother either.",
+                how="Expand to at least cover: what the project is (one paragraph), how to install (one code block), how to run (one code block), and where to ask questions.",
+            ),
             points=POINTS_WARN,
         ))
 
@@ -516,7 +770,12 @@ def _documentation_checks(
             name="README sections",
             status="fail",
             evidence={"file": "—", "snippet": ""},
-            recommendation="Add README with Usage/Setup/Installation.",
+            recommendation=_rec(
+                what="No README or docs to evaluate for structure.",
+                where="Repository root",
+                why="Without any structured documentation, the project's onboarding cost scales linearly with team size — every new person asks the same questions.",
+                how="Add a README.md that includes at minimum a `## Usage`, `## Setup`, or `## Installation` heading so readers can find the run command without reading every paragraph.",
+            ),
             points=POINTS_FAIL,
         ))
     elif has_section:
@@ -525,7 +784,12 @@ def _documentation_checks(
             name="README sections",
             status="pass",
             evidence={"file": doc_ev_file, "snippet": _truncate(readme_snippet or "") or f"Found: {doc_ev_file}"},
-            recommendation="README has structure.",
+            recommendation=_rec(
+                what="README is organized with usage, setup, or installation headings.",
+                where=doc_ev_file,
+                why="Readers can skim to the section they need. That's the difference between docs people use and docs people skim past.",
+                how="Keep adding headings as the project grows (e.g. `## Architecture`, `## Contributing`) so the README scales with the codebase.",
+            ),
             points=POINTS_PASS,
         ))
     else:
@@ -534,7 +798,12 @@ def _documentation_checks(
             name="README sections",
             status="warn",
             evidence={"file": doc_ev_file, "snippet": _truncate(readme_snippet or "") or f"Found: {doc_ev_file}"},
-            recommendation="Add Usage/Setup/Installation section.",
+            recommendation=_rec(
+                what="README has prose but no `## Usage`, `## Setup`, or `## Installation` heading.",
+                where=doc_ev_file,
+                why="Readers have to read top-to-bottom to find install or run commands. That's a friction tax every time someone returns to this project.",
+                how="Add a `## Setup` or `## Getting started` heading near the top of the README, with the install and run commands directly under it.",
+            ),
             points=POINTS_WARN,
         ))
 
@@ -669,26 +938,54 @@ def _code_analysis_checks(
     # Summary bullet as first check
     bullets = code_analysis.get("summary_bullets") or []
     summary_text = "; ".join(bullets)[:500] if bullets else "No code analysis summary."
+    if bullets:
+        summary_rec = _rec(
+            what="Static analysis produced a summary of languages, frameworks, and endpoints.",
+            where="Sampled repository contents",
+            why="A read-only summary is the cheapest way for a reviewer to grasp the shape of the codebase before clicking into specific files.",
+            how="Use the bullets below as the entry point into deeper review — start with the most-used language and the framework that owns the request path.",
+        )
+    else:
+        summary_rec = _rec(
+            what="Static analysis produced no summary signals.",
+            where="Sampled repository contents",
+            why="Either the sampled files are too few to tell, or the repo uses languages/frameworks the analyzer doesn't recognize. Either way, reviewer gets no orienting view.",
+            how="Increase the file sample (raise MAX_FILES_FETCH) or add a language/framework detector for whatever is actually in this repo.",
+        )
     checks.append(
         CheckResult(
             id="code_summary",
             name="Code analysis summary",
             status="pass" if bullets else "warn",
             evidence={"file": "—", "snippet": summary_text},
-            recommendation="Summary from static analysis (read-only, no execution).",
+            recommendation=summary_rec,
             points=POINTS_PASS if bullets else POINTS_WARN,
         )
     )
 
     # Frameworks detected
     frameworks = code_analysis.get("frameworks_detected") or []
+    if frameworks:
+        fw_rec = _rec(
+            what=f"Detected frameworks: {', '.join(frameworks)}.",
+            where="Sampled repository contents",
+            why="Knowing the framework tells a reviewer which conventions to expect (e.g. FastAPI dependency injection, Next.js routing) and where to look for the request path.",
+            how="If the list is missing a framework you actually use, raise the file sample limit or add a detector — the rest of the analysis depends on this signal.",
+        )
+    else:
+        fw_rec = _rec(
+            what="No web framework detected in scanned files.",
+            where="Sampled repository contents",
+            why="Either this is a library, a script, or the framework isn't recognized. Endpoint discovery and architecture analysis don't have an anchor without it.",
+            how="If this should be a web service, confirm `fastapi`, `express`, `next`, or similar is present in your manifest and being imported. Otherwise this is informational.",
+        )
     checks.append(
         CheckResult(
             id="code_frameworks",
             name="Frameworks detected",
             status="pass" if frameworks else "warn",
             evidence={"file": "—", "snippet": ", ".join(frameworks) if frameworks else "None"},
-            recommendation="Frameworks inferred from code structure." if frameworks else "No framework detected in scanned files.",
+            recommendation=fw_rec,
             points=POINTS_PASS if frameworks else POINTS_WARN,
         )
     )
@@ -696,13 +993,27 @@ def _code_analysis_checks(
     # Endpoint count
     endpoints = code_analysis.get("endpoints") or []
     ep_count = len(endpoints)
+    if ep_count:
+        ep_rec = _rec(
+            what=f"Static endpoint discovery found {ep_count} route(s).",
+            where="Detected route definitions in sampled files",
+            why="Endpoints are the public contract. Knowing what's exposed is the first step to reviewing auth, input validation, and rate limiting on each one.",
+            how="Cross-check the discovered list against your routing tests — anything in the list that isn't tested is a candidate for a smoke test.",
+        )
+    else:
+        ep_rec = _rec(
+            what="No route decorators or API endpoints found in scanned files.",
+            where="Sampled repository contents",
+            why="Either this isn't a web service, or the framework's routing convention isn't recognized. Reviewers can't audit the public surface from this analysis alone.",
+            how="If endpoints exist, confirm the analyzer covers your framework's routing style (FastAPI/APIRouter decorators, Next.js `pages/api/`, or Express `router.get`).",
+        )
     checks.append(
         CheckResult(
             id="code_endpoints",
             name="Endpoints",
             status="pass" if ep_count > 0 else "warn",
             evidence={"file": "—", "snippet": f"{ep_count} endpoint(s) discovered"},
-            recommendation=f"Static endpoint discovery (FastAPI/Next/Express)." if ep_count else "No route decorators or API routes found in scanned files.",
+            recommendation=ep_rec,
             points=POINTS_PASS if ep_count > 0 else POINTS_WARN,
         )
     )
@@ -713,13 +1024,27 @@ def _code_analysis_checks(
     has_typecheck = bool(quality_signals.get("typecheck"))
     has_tests = bool(quality_signals.get("test_dirs") or quality_signals.get("test_config"))
     quality_ok = has_lint or has_tests
+    if quality_ok:
+        quality_rec = _rec(
+            what=f"Quality signals detected (lint: {has_lint}, typecheck: {has_typecheck}, tests: {has_tests}).",
+            where="Repository configuration files",
+            why="The team has set up at least one of the standard quality gates. Code health is a stated value, not just an aspiration.",
+            how="Make sure each detected gate runs in CI as a required check — a config file that nobody enforces is just decoration.",
+        )
+    else:
+        quality_rec = _rec(
+            what=f"Few quality signals: lint={has_lint}, typecheck={has_typecheck}, tests={has_tests}.",
+            where="Repository configuration files",
+            why="Without lint, typecheck, or tests, every change ships unreviewed by any automated tool. The cost is paid in production bugs and review fatigue.",
+            how="Pick the cheapest one to add first — usually `ruff`/`eslint` for lint — and wire it into CI as a required check before tackling typecheck or tests.",
+        )
     checks.append(
         CheckResult(
             id="code_quality",
             name="Code quality signals",
             status="pass" if quality_ok else "warn",
             evidence={"file": "—", "snippet": f"Lint/format: {has_lint}; Typecheck: {has_typecheck}; Tests: {has_tests}"},
-            recommendation="Lint/format or test config detected in repo." if quality_ok else "Add lint/format or test config for better quality signals.",
+            recommendation=quality_rec,
             points=POINTS_PASS if quality_ok else POINTS_WARN,
         )
     )
@@ -729,13 +1054,34 @@ def _code_analysis_checks(
     secret_count = security_signals.get("secret_findings", 0) or 0
     danger_count = security_signals.get("danger_findings", 0) or 0
     security_ok = secret_count == 0 and danger_count == 0
+    if security_ok:
+        sec_rec = _rec(
+            what="Static security scan found no high-confidence secrets or dangerous patterns.",
+            where="Sampled repository contents",
+            why="Surface-level credential and dangerous-call hygiene is in place — committed code isn't leaking tokens or shelling out to user input on the obvious paths.",
+            how="Add a pre-commit secret scanner (`gitleaks`, `detect-secrets`) so this stays true as the codebase grows, and run a deeper SAST tool periodically for the non-obvious paths.",
+        )
+    elif secret_count > 0:
+        sec_rec = _rec(
+            what=f"Static scan flagged {secret_count} possible secret(s) and {danger_count} dangerous pattern(s).",
+            where="Sampled repository contents (see individual findings below)",
+            why="If even one of the secret matches is real, that credential is compromised. Anyone with read access to the repo (or its git history) can use it.",
+            how="Treat every flagged secret as compromised: rotate it, then move the value to environment variables. Review each dangerous pattern (`eval`, `subprocess shell=True`, `pickle.loads`) for untrusted input.",
+        )
+    else:
+        sec_rec = _rec(
+            what=f"Static scan flagged {danger_count} dangerous code pattern(s).",
+            where="Sampled repository contents (see individual findings below)",
+            why="Dangerous patterns (`eval`, `exec`, `subprocess shell=True`, `pickle.loads`) are remote code execution paths if their input is ever attacker-controlled.",
+            how="Review each flagged call. Ensure the input is fully trusted (literal string, internal config) — if not, replace with a safe alternative (`subprocess.run(args)` instead of `shell=True`, structured deserializers instead of `pickle`).",
+        )
     checks.append(
         CheckResult(
             id="code_security",
             name="Code security",
             status="fail" if secret_count > 0 else ("warn" if danger_count > 0 else "pass"),
             evidence={"file": "—", "snippet": f"Possible secrets: {secret_count}; Dangerous patterns: {danger_count}"},
-            recommendation="No high-confidence secrets or dangerous patterns." if security_ok else "Review flagged secrets and dangerous patterns.",
+            recommendation=sec_rec,
             points=POINTS_FAIL if secret_count > 0 else (POINTS_WARN if danger_count > 0 else POINTS_PASS),
         )
     )
@@ -752,21 +1098,499 @@ def _code_analysis_checks(
             evidence_dict["start_line"] = start_line
         if end_line is not None:
             evidence_dict["end_line"] = end_line
-        severity = (f.get("severity") or "info").lower()
-        status = "fail" if severity == "high" else ("warn" if severity == "medium" else "pass")
-        points = POINTS_FAIL if severity == "high" else (POINTS_WARN if severity == "medium" else POINTS_PASS)
+        sev_str = (f.get("severity") or "info").lower()
+        status = "fail" if sev_str == "high" else ("warn" if sev_str == "medium" else "pass")
+        points = POINTS_FAIL if sev_str == "high" else (POINTS_WARN if sev_str == "medium" else POINTS_PASS)
+        sev_value = SEV_HIGH if sev_str == "high" else (SEV_MEDIUM if sev_str == "medium" else SEV_LOW)
+        title = f.get("title") or "Finding"
+        title_lower = title.lower()
+        is_security = title_lower.startswith("possible secret") or title_lower.startswith("dangerous pattern")
+        category = "Security & Deps" if is_security else "Maintainability"
+        description = f.get("description") or ""
+        # Build a structured recommendation. The analyzer-supplied `description`
+        # is the closest thing to a "how" we have; the rest is severity- and
+        # category-shaped so the why is honest about cost.
+        where_str = path
+        if start_line is not None and end_line is not None and start_line == end_line:
+            where_str = f"{path}:{start_line}"
+        elif start_line is not None and end_line is not None:
+            where_str = f"{path}:{start_line}-{end_line}"
+        if is_security and sev_str == "high":
+            why_text = "If this match is a real credential, it's compromised — anyone with repo read access (or git history) can use it. Even removed secrets in history are leaked."
+        elif is_security:
+            why_text = "Dangerous code patterns (eval, subprocess shell=True, pickle.loads) become RCE paths the moment their input is attacker-controlled."
+        else:
+            why_text = "Maintainability findings don't break prod today, but they accumulate into the kind of code that takes longer to change safely."
+        finding_rec = _rec(
+            what=title,
+            where=where_str,
+            why=why_text,
+            how=description or "Review the flagged location and apply the smallest change that resolves the underlying issue.",
+        )
         checks.append(
             CheckResult(
                 id=f"code_finding_{i}",
-                name=f.get("title") or "Finding",
+                name=title,
                 status=status,
                 evidence=evidence_dict,
-                recommendation=f.get("description") or "",
+                recommendation=finding_rec,
                 points=points,
+                severity=sev_value,
+                category=category,
             )
         )
 
     return checks
+
+
+_COMPLEXITY_HIGH = 10
+_COMPLEXITY_VERY_HIGH = 20
+_GOD_MODULE_FAN_IN = 20
+
+
+def _file_language(path: str) -> str:
+    """Map a file extension to a tree-sitter language string. Empty if unsupported."""
+    pl = path.lower()
+    if pl.endswith(".tsx"):
+        return "tsx"
+    if pl.endswith(".ts"):
+        return "typescript"
+    if pl.endswith((".js", ".jsx", ".mjs", ".cjs")):
+        return "javascript"
+    return ""
+
+
+def _complexity_checks(content_by_path: dict[str, str]) -> list[CheckResult]:
+    """Surface high-complexity functions and TS `: any` density."""
+    from app.analyzers.code.complexity import (
+        parse_js_complexity,
+        parse_python_complexity,
+    )
+
+    results: list[CheckResult] = []
+    if not content_by_path:
+        return results
+
+    high_funcs: list[tuple[str, str, int, int]] = []  # path, name, complexity, line
+    very_high_funcs: list[tuple[str, str, int, int]] = []
+    any_total = 0
+    ts_files_scanned = 0
+
+    for path, content in content_by_path.items():
+        if path.endswith(".py"):
+            res = parse_python_complexity(path, content or "")
+            for fn in res.get("functions") or []:
+                cx = int(fn.get("complexity") or 0)
+                if cx >= _COMPLEXITY_VERY_HIGH:
+                    very_high_funcs.append((path, fn.get("name") or "", cx, int(fn.get("start_line") or 0)))
+                elif cx >= _COMPLEXITY_HIGH:
+                    high_funcs.append((path, fn.get("name") or "", cx, int(fn.get("start_line") or 0)))
+        else:
+            lang = _file_language(path)
+            if not lang:
+                continue
+            res = parse_js_complexity(path, content or "", lang)
+            if lang in ("typescript", "tsx"):
+                ts_files_scanned += 1
+                any_total += int(res.get("any_count") or 0)
+
+    total_complex = len(high_funcs) + len(very_high_funcs)
+    if total_complex == 0:
+        results.append(CheckResult(
+            id="complexity_summary",
+            name="Cyclomatic complexity",
+            status="pass",
+            evidence={"file": "—", "snippet": "No functions exceeded complexity threshold."},
+            recommendation=_rec(
+                what="No Python functions exceeded the cyclomatic complexity threshold.",
+                where="Sampled Python files",
+                why="Low complexity means each function fits in a reviewer's head and is easier to test in isolation. That keeps refactor cost down.",
+                how="Keep complexity in mind when adding code — when a function grows past ~10 branches, that's the moment to split it rather than after.",
+            ),
+            points=POINTS_PASS,
+            severity=SEV_LOW,
+            confidence=0.9,
+            scope_factor=0.2,
+        ))
+    else:
+        first = (very_high_funcs or high_funcs)[0]
+        path, name, cx, line = first
+        is_fail = bool(very_high_funcs)
+        sev = SEV_HIGH if is_fail else SEV_MEDIUM
+        results.append(CheckResult(
+            id="complexity_summary",
+            name="Cyclomatic complexity",
+            status="fail" if is_fail else "warn",
+            evidence={"file": f"{path}:{line}" if line else path, "snippet": f"{name} complexity={cx}"},
+            recommendation=_rec(
+                what=f"{total_complex} function(s) exceed the complexity threshold (>= {_COMPLEXITY_HIGH}); {len(very_high_funcs)} are very high (>= {_COMPLEXITY_VERY_HIGH}).",
+                where=f"e.g. {path}:{line} ({name}, complexity={cx})",
+                why="Highly branchy functions are hard to reason about, hard to test, and hard to change without regressions. They become the slowest part of every PR review touching them.",
+                how="Extract guard clauses to early returns, pull each branch into a named helper, and add a test per branch as you split — the test surface grows with the design, not after.",
+            ),
+            points=POINTS_FAIL if is_fail else POINTS_WARN,
+            severity=sev,
+            confidence=0.9,
+            scope_factor=compute_scope_factor(total_complex),
+        ))
+
+    if ts_files_scanned > 0:
+        if any_total == 0:
+            results.append(CheckResult(
+                id="complexity_any_types",
+                name="TypeScript `any` usage",
+                status="pass",
+                evidence={"file": "—", "snippet": f"any usages: 0 across {ts_files_scanned} TS file(s)"},
+                recommendation=_rec(
+                    what=f"No `: any` or `as any` usages were detected across {ts_files_scanned} TypeScript file(s).",
+                    where="Sampled TypeScript files",
+                    why="Avoiding `any` keeps the type system useful — refactors stay safe and IDE tooling can catch mistakes before they ship.",
+                    how="Keep enforcing this with a `no-explicit-any` rule in eslint/tsconfig so a slip in a future PR fails CI rather than landing silently.",
+                ),
+                points=POINTS_PASS,
+                severity=SEV_LOW,
+                confidence=0.85,
+                scope_factor=0.2,
+            ))
+        else:
+            results.append(CheckResult(
+                id="complexity_any_types",
+                name="TypeScript `any` usage",
+                status="warn",
+                evidence={"file": "—", "snippet": f"any usages: {any_total} across {ts_files_scanned} TS file(s)"},
+                recommendation=_rec(
+                    what=f"{any_total} `: any` or `as any` usage(s) detected across {ts_files_scanned} TypeScript file(s).",
+                    where="Sampled TypeScript files",
+                    why="Each `any` is a hole the type system can't see through. Refactors silently break consumers and the tooling can't help catch the mistake at edit time.",
+                    how="Replace each with the concrete type, a generic, or `unknown` plus a narrow check. Add an eslint `no-explicit-any` rule so new instances fail CI.",
+                ),
+                points=POINTS_WARN,
+                severity=SEV_MEDIUM,
+                confidence=0.85,
+                scope_factor=compute_scope_factor(any_total),
+            ))
+
+    return results
+
+
+def _smells_checks(content_by_path: dict[str, str]) -> list[CheckResult]:
+    """Surface code smells (empty except, eval, console.log, etc.)."""
+    from app.analyzers.code.smells import detect_js_smells, detect_python_smells
+
+    results: list[CheckResult] = []
+    if not content_by_path:
+        return results
+
+    high_smells: list[tuple[str, dict[str, Any]]] = []
+    low_smells: list[tuple[str, dict[str, Any]]] = []
+
+    for path, content in content_by_path.items():
+        if path.endswith(".py"):
+            for s in detect_python_smells(path, content or ""):
+                (high_smells if s.get("severity") == "high" else low_smells).append((path, s))
+        elif path.endswith((".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")):
+            for s in detect_js_smells(path, content or ""):
+                (high_smells if s.get("severity") == "high" else low_smells).append((path, s))
+
+    total = len(high_smells) + len(low_smells)
+    if total == 0:
+        results.append(CheckResult(
+            id="smells_summary",
+            name="Code smells",
+            status="pass",
+            evidence={"file": "—", "snippet": "No code smells detected."},
+            recommendation=_rec(
+                what="No code smells (empty except, eval, console.log in prod, magic numbers) detected in scanned files.",
+                where="Sampled repository contents",
+                why="The obvious quality gates are clean — no swallowed exceptions, no `eval`, no debug logging shipping to production.",
+                how="Keep enforcing this via lint rules so a regression fails CI rather than landing silently.",
+            ),
+            points=POINTS_PASS,
+            severity=SEV_LOW,
+            confidence=0.85,
+            scope_factor=0.2,
+        ))
+    else:
+        results.append(CheckResult(
+            id="smells_summary",
+            name="Code smells",
+            status="warn" if not high_smells else "fail",
+            evidence={
+                "file": (high_smells or low_smells)[0][0],
+                "snippet": f"{total} smell(s); {len(high_smells)} high-severity",
+            },
+            recommendation=_rec(
+                what=f"{total} code smell(s) detected; {len(high_smells)} are high-severity.",
+                where=f"e.g. {(high_smells or low_smells)[0][0]}:{(high_smells or low_smells)[0][1].get('line', '')}",
+                why="Smells like empty `except`, `eval`, and console logging in production code don't break the build but hide bugs and leak debug noise to users.",
+                how="Address high-severity smells first (empty except, eval) — they hide real failures. Then tighten lint rules to prevent regressions.",
+            ),
+            points=POINTS_FAIL if high_smells else POINTS_WARN,
+            severity=SEV_HIGH if high_smells else SEV_LOW,
+            confidence=0.9,
+            scope_factor=compute_scope_factor(total),
+        ))
+
+    if high_smells:
+        path, smell = high_smells[0]
+        line = smell.get("line") or 0
+        smell_type = smell.get("type") or "smell"
+        results.append(CheckResult(
+            id="smells_dangerous",
+            name=f"Dangerous smell: {smell_type}",
+            status="fail",
+            evidence={
+                "file": f"{path}:{line}" if line else path,
+                "snippet": (smell.get("snippet") or "")[:EVIDENCE_SNIPPET_MAX],
+                "start_line": line if line else None,
+                "end_line": line if line else None,
+            },
+            recommendation=_rec(
+                what=f"High-severity smell: {smell_type}.",
+                where=f"{path}:{line}" if line else path,
+                why="Empty `except` swallows real failures and `eval` is a remote-code-execution path the moment its input is attacker-controlled.",
+                how="Replace `except: pass` with explicit handling (log + re-raise, or catch the specific exception class). Replace `eval` with a parser or explicit dispatch table.",
+            ),
+            points=POINTS_FAIL,
+            severity=SEV_HIGH,
+            confidence=0.9,
+            scope_factor=compute_scope_factor(len(high_smells)),
+        ))
+
+    # Strip None-valued evidence keys so the dataclass stays JSON-clean.
+    for r in results:
+        r.evidence = {k: v for k, v in r.evidence.items() if v is not None}
+
+    return results
+
+
+def _dependency_checks(content_by_path: dict[str, str]) -> list[CheckResult]:
+    """Surface unused / missing declared dependencies."""
+    from app.analyzers.code.dependencies import check_js_deps, check_python_deps
+
+    results: list[CheckResult] = []
+    if not content_by_path:
+        return results
+
+    py_dep = check_python_deps(content_by_path)
+    js_dep = check_js_deps(content_by_path)
+
+    unused = (py_dep.get("unused") or []) + (js_dep.get("unused") or [])
+    missing = (py_dep.get("missing") or []) + (js_dep.get("missing") or [])
+
+    has_manifest = bool(py_dep.get("declared")) or bool(js_dep.get("declared"))
+    if not has_manifest:
+        return results
+
+    if unused:
+        results.append(CheckResult(
+            id="dependencies_unused",
+            name="Unused dependencies",
+            status="warn",
+            evidence={
+                "file": "requirements.txt" if py_dep.get("unused") else "package.json",
+                "snippet": ", ".join(unused[:10]),
+            },
+            recommendation=_rec(
+                what=f"{len(unused)} declared dependency/dependencies appear unused in source: {', '.join(unused[:5])}{'…' if len(unused) > 5 else ''}.",
+                where="requirements.txt or package.json",
+                why="Unused deps inflate install size, broaden the supply-chain attack surface, and confuse new contributors about what's actually load-bearing.",
+                how="Remove each from the manifest, run a clean install, and run the test suite. If a dep is needed at runtime via dynamic import, document that explicitly.",
+            ),
+            points=POINTS_WARN,
+            severity=SEV_LOW,
+            confidence=0.7,
+            scope_factor=compute_scope_factor(len(unused)),
+        ))
+    else:
+        results.append(CheckResult(
+            id="dependencies_unused",
+            name="Unused dependencies",
+            status="pass",
+            evidence={"file": "—", "snippet": "All declared dependencies appear used."},
+            recommendation=_rec(
+                what="All declared dependencies appear to be imported somewhere.",
+                where="requirements.txt and package.json",
+                why="No dead weight in the dependency manifest — install size and supply-chain surface are minimized.",
+                how="Run a check like `depcheck` or `pip-check` periodically to keep this true as code is removed.",
+            ),
+            points=POINTS_PASS,
+            severity=SEV_LOW,
+            confidence=0.7,
+            scope_factor=0.2,
+        ))
+
+    if missing:
+        results.append(CheckResult(
+            id="dependencies_missing",
+            name="Missing dependencies",
+            status="fail",
+            evidence={
+                "file": "requirements.txt or package.json",
+                "snippet": ", ".join(missing[:10]),
+            },
+            recommendation=_rec(
+                what=f"{len(missing)} import(s) reference packages not declared in any manifest: {', '.join(missing[:5])}{'…' if len(missing) > 5 else ''}.",
+                where="requirements.txt and package.json",
+                why="A fresh clone won't install these packages. The first runtime import will crash with ModuleNotFoundError — a guaranteed onboarding break.",
+                how="Add each missing package to the manifest with an exact version pin. If one is meant to be optional, gate the import behind a try/except with a clear error message.",
+            ),
+            points=POINTS_FAIL,
+            severity=SEV_HIGH,
+            confidence=0.8,
+            scope_factor=compute_scope_factor(len(missing)),
+        ))
+    else:
+        results.append(CheckResult(
+            id="dependencies_missing",
+            name="Missing dependencies",
+            status="pass",
+            evidence={"file": "—", "snippet": "All imports resolve to declared dependencies."},
+            recommendation=_rec(
+                what="Every external import resolves to a declared dependency.",
+                where="requirements.txt and package.json",
+                why="Fresh clones install successfully — no surprise `ModuleNotFoundError` at runtime.",
+                how="Keep the manifest in sync as imports are added; consider a CI check (`pip check`, `npm ls`) that fails on unresolved imports.",
+            ),
+            points=POINTS_PASS,
+            severity=SEV_MEDIUM,
+            confidence=0.8,
+            scope_factor=0.2,
+        ))
+
+    return results
+
+
+def _architecture_checks(content_by_path: dict[str, str]) -> list[CheckResult]:
+    """Surface circular imports, god modules, orphan modules from the import graph."""
+    from app.analyzers.code.architecture import (
+        build_import_graph,
+        find_circular_imports,
+        find_god_modules,
+        find_orphan_modules,
+    )
+
+    results: list[CheckResult] = []
+    if not content_by_path:
+        return results
+
+    graph = build_import_graph(content_by_path)
+    if graph.number_of_nodes() == 0:
+        return results
+
+    cycles = find_circular_imports(graph)
+    gods = find_god_modules(graph, threshold=_GOD_MODULE_FAN_IN)
+    orphans = find_orphan_modules(graph)
+
+    if cycles:
+        first = cycles[0]
+        results.append(CheckResult(
+            id="architecture_circular",
+            name="Circular imports",
+            status="fail",
+            evidence={"file": first[0] if first else "—", "snippet": " -> ".join(first)[:EVIDENCE_SNIPPET_MAX]},
+            recommendation=_rec(
+                what=f"{len(cycles)} circular import chain(s) detected.",
+                where=f"e.g. {' -> '.join(first)}",
+                why="Circular imports trigger import-time errors, force lazy-import workarounds, and signal that the module boundaries don't match the actual data flow.",
+                how="Pull the shared types or constants out into a leaf module that both sides import from. Or merge the two modules if they really do belong together.",
+            ),
+            points=POINTS_FAIL,
+            severity=SEV_HIGH,
+            confidence=0.9,
+            scope_factor=compute_scope_factor(len(cycles)),
+        ))
+    else:
+        results.append(CheckResult(
+            id="architecture_circular",
+            name="Circular imports",
+            status="pass",
+            evidence={"file": "—", "snippet": "No circular imports detected."},
+            recommendation=_rec(
+                what="No circular imports detected in the import graph.",
+                where="Sampled repository contents",
+                why="Module boundaries are clean — refactors don't have to chase phantom import-time errors.",
+                how="Keep it that way by treating new circular-import errors as a design signal, not a thing to work around with lazy imports.",
+            ),
+            points=POINTS_PASS,
+            severity=SEV_MEDIUM,
+            confidence=0.9,
+            scope_factor=0.2,
+        ))
+
+    if gods:
+        results.append(CheckResult(
+            id="architecture_god_modules",
+            name="God modules",
+            status="warn",
+            evidence={"file": gods[0], "snippet": f"fan_in > {_GOD_MODULE_FAN_IN}: {', '.join(gods[:5])}"},
+            recommendation=_rec(
+                what=f"{len(gods)} module(s) imported by more than {_GOD_MODULE_FAN_IN} other files.",
+                where=f"e.g. {gods[0]}",
+                why="A module that's depended on by half the codebase is a change-blast-radius hazard: every edit risks breaking a long tail of consumers.",
+                how="Split the module along internal seams (one file per coherent responsibility), or freeze its public surface and route changes through a stable adapter.",
+            ),
+            points=POINTS_WARN,
+            severity=SEV_MEDIUM,
+            confidence=0.8,
+            scope_factor=compute_scope_factor(len(gods)),
+        ))
+    else:
+        results.append(CheckResult(
+            id="architecture_god_modules",
+            name="God modules",
+            status="pass",
+            evidence={"file": "—", "snippet": f"No modules exceed fan_in={_GOD_MODULE_FAN_IN}."},
+            recommendation=_rec(
+                what="No god modules: no file is imported by more than the threshold.",
+                where="Sampled repository contents",
+                why="The blast radius of a typical change is bounded — no single file holds the whole codebase hostage.",
+                how="Watch fan-in over time as the codebase grows; the same threshold becomes informative again at a larger scale.",
+            ),
+            points=POINTS_PASS,
+            severity=SEV_LOW,
+            confidence=0.8,
+            scope_factor=0.2,
+        ))
+
+    if orphans:
+        # Only warn when there are multiple orphans — a single orphan is often legitimate (script, types-only file).
+        many = len(orphans) >= 3
+        results.append(CheckResult(
+            id="architecture_orphans",
+            name="Orphan modules",
+            status="warn" if many else "pass",
+            evidence={"file": orphans[0], "snippet": f"{len(orphans)} orphan(s): {', '.join(orphans[:5])}"},
+            recommendation=_rec(
+                what=f"{len(orphans)} module(s) are not imported by any non-entry-point file.",
+                where=f"e.g. {orphans[0]}",
+                why="An orphan module either is dead code or relies on dynamic loading. Either case is worth flagging before a refactor wastes effort on unused branches.",
+                how="For each orphan, decide: delete (dead code), wire it into the codebase explicitly (live but disconnected), or document the dynamic-load path.",
+            ),
+            points=POINTS_WARN if many else POINTS_PASS,
+            severity=SEV_LOW,
+            confidence=0.6,
+            scope_factor=compute_scope_factor(len(orphans)) if many else 0.2,
+        ))
+    else:
+        results.append(CheckResult(
+            id="architecture_orphans",
+            name="Orphan modules",
+            status="pass",
+            evidence={"file": "—", "snippet": "No orphan modules detected."},
+            recommendation=_rec(
+                what="No orphan modules: every non-entry-point file has at least one importer.",
+                where="Sampled repository contents",
+                why="The codebase has no dead-code candidates hiding in plain sight — every file is on a live import path.",
+                how="Re-run this check after large refactors to surface any newly-disconnected modules.",
+            ),
+            points=POINTS_PASS,
+            severity=SEV_LOW,
+            confidence=0.6,
+            scope_factor=0.2,
+        ))
+
+    return results
 
 
 def analyze(
@@ -798,17 +1622,23 @@ def analyze(
 
     code_checks: list[CheckResult] = []
     code_score = 0
+    arch_checks: list[CheckResult] = []
     if content:
         code_stats = (ingested.get("stats") or {}) if ingested else {}
-        code_checks = _code_analysis_checks(content, code_stats)
+        base_code_checks = _code_analysis_checks(content, code_stats)
+        complexity_checks = _complexity_checks(content)
+        smells_checks = _smells_checks(content)
+        deps_checks = _dependency_checks(content)
+        arch_checks = _architecture_checks(content)
+        code_checks = base_code_checks + complexity_checks + smells_checks + deps_checks
         code_score = sum(c.points for c in code_checks)
         sections.append(SectionResult(name="Code Analysis", checks=code_checks, score=code_score))
+        if arch_checks:
+            arch_score = sum(c.points for c in arch_checks)
+            sections.append(SectionResult(name="Architecture", checks=arch_checks, score=arch_score))
 
-    total = run_score + eng_score + sec_score + doc_score + code_score
-    all_checks = run_checks + eng_checks + sec_checks + doc_checks + code_checks
-    max_possible = 10 * len(all_checks) if all_checks else 1
-    overall_score = round(100 * total / max_possible) if max_possible else 0
-    overall_score = min(100, max(0, overall_score))
+    all_checks = run_checks + eng_checks + sec_checks + doc_checks + code_checks + arch_checks
+    overall_score, category_scores = compute_categorical_score(all_checks)
 
     stack = _detect_stack(fetch_result, content)
     interview_pack = _generate_interview_pack(fetch_result, stack)
@@ -817,4 +1647,5 @@ def analyze(
         overall_score=overall_score,
         sections=sections,
         interview_pack=interview_pack,
+        category_scores=category_scores,
     )

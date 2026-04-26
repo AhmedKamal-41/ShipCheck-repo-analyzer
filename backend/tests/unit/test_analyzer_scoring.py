@@ -41,8 +41,14 @@ def test_score_calculation_zero_score():
     # Empty fetch result - most things fail, but secrets check might pass
     report = analyze(fetch)
     # Secrets check passes even with empty repo (no secrets found = pass)
-    # So score won't be exactly 0, but should be very low
-    assert report.overall_score < 20  # Very low score
+    # So score won't be exactly 0, but should be very low.
+    # Prompt 3 (categorical math, empty Architecture floor): assert score < 30.
+    # Prompt 5: empty fetch_result still produces no content_by_path, so the
+    #   Architecture analyzer doesn't run and Architecture remains an empty
+    #   category that scores 100 neutral. The < 30 anchor still holds (~24).
+    #   For repos with content, Architecture is now a real bucket — see
+    #   tests/unit/test_recommendation_branches.py for that coverage.
+    assert report.overall_score < 30
     assert len(report.sections) == 4  # Runability, Engineering, Secrets, Docs
 
 
@@ -67,8 +73,12 @@ def test_score_bounds():
 def test_empty_fetch_result():
     """Test handling of empty/None fetch result."""
     report = analyze({})
-    # Secrets check passes (no secrets = pass), so score won't be 0
-    assert report.overall_score < 20  # Very low but not zero
+    # Secrets check passes (no secrets = pass), so score won't be 0.
+    # Prompt 3 (categorical math, empty Architecture floor): assert score < 30.
+    # Prompt 5: same reasoning as test_score_calculation_zero_score —
+    #   empty fetch -> no content_by_path -> Architecture analyzer doesn't
+    #   run -> Architecture stays empty=100 and the < 30 anchor still holds.
+    assert report.overall_score < 30
     assert len(report.sections) == 4
 
 
