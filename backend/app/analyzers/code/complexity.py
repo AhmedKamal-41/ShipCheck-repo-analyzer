@@ -142,7 +142,7 @@ def parse_js_complexity(file_path: str, content: str, language: str) -> dict[str
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from tree_sitter_languages import get_parser
+            from tree_sitter_language_pack import get_parser
             parser = get_parser(lang)
     except Exception:
         return _EMPTY_JS
